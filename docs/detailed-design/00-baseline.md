@@ -47,19 +47,21 @@
 
 ```text
 xqatexp/
-  app/             # 用例编排和 CLI 入口
-  contracts/       # 共享不可变领域合同
-  data/            # 获取、检查、标准化、构建
+  domain/          # 共享不可变领域合同、枚举、Issue 和数值规则
+  artifacts/       # Artifact Schema、读取、摘要和发布
+  providers/       # 外部数据获取；MVP 仅 Tushare
   research/        # DuckDB 查询、View、依赖和用户因子
   strategy/        # 唯一 Strategy Core 与内置策略
   portfolio/       # 组合合法性和调仓规划
-  backtest/        # 历史推进、执行、账户和分析编排
+  backtest/        # 历史推进、执行、公司行为和模拟账户
+  performance/     # 指标、贡献和阶段分析
   daily/           # Daily Run 与 Daily Advice
-  results/         # Artifact 发布和报告格式化
-  security/        # 凭证获取和脱敏
+  reporting/       # 结构化结果到 Markdown 的无重算展示
+  application/     # 用例编排
+  cli.py           # 唯一命令入口与 composition root
 ```
 
-依赖方向只能从用例层指向领域能力；`strategy` 不依赖 `data` 的文件实现、`backtest` 账户或 `daily` 账户。
+物理文件布局以 17 §3 为准。依赖方向只能从用例层指向领域能力；`strategy` 不依赖 `providers`/`research` 的文件实现、`backtest` 账户或 `daily` 账户。
 
 ## 5. 本地目录约定
 
