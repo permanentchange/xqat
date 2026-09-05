@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xqatexp.local/schemas/target_portfolio-1.0.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "strategy_id",
+    "strategy_version",
+    "decision_date",
+    "effective_from",
+    "market_regime",
+    "theoretical_drawdown",
+    "drawdown_window_trade_days",
+    "drawdown_observations",
+    "drawdown_overlay_level",
+    "positions",
+    "transition_records",
+    "cash_weight",
+    "explanations"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "strategy_id": { "type": "string", "minLength": 1 },
+    "strategy_version": { "type": "string", "minLength": 1 },
+    "decision_date": { "type": "string", "format": "date" },
+    "effective_from": { "type": "string", "format": "date" },
+    "market_regime": { "enum": ["STRONG", "NEUTRAL", "WEAK"] },
+    "theoretical_drawdown": { "type": "number", "maximum": 0 },
+    "drawdown_window_trade_days": { "const": 60 },
+    "drawdown_observations": { "type": "integer", "minimum": 1, "maximum": 60 },
+    "drawdown_overlay_level": { "enum": ["NONE", "CAUTION", "DEFENSIVE"] },
+    "positions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["security_id", "asset_type", "target_weight", "rank", "score", "transition", "explanation_codes", "holding_age_weeks"],
+        "properties": {
+          "security_id": { "type": "string", "pattern": "^[0-9]{6}\\.(SH|SZ)$" },
+          "asset_type": { "enum": ["A_SHARE", "CSI300_ETF"] },
+          "target_weight": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+          "rank": { "type": ["integer", "null"], "minimum": 1 },
+          "score": { "type": ["number", "null"] },
+          "transition": { "type": ["string", "null"], "enum": ["NEW", "RETAIN", "INCREASE", "DECREASE", "INITIAL", null] },
+          "explanation_codes": { "type": "array", "items": { "type": "string" } },
+          "holding_age_weeks": { "type": ["integer", "null"], "minimum": 0 }
+        }
+      }
+    },
+    "transition_records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["security_id", "previous_weight", "current_weight", "transition", "explanation_codes"],
+        "properties": {
+          "security_id": { "type": "string" },
+          "previous_weight": { "type": "number", "minimum": 0, "maximum": 1 },
+          "current_weight": { "type": "number", "minimum": 0, "maximum": 1 },
+          "transition": { "enum": ["NEW", "RETAIN", "INCREASE", "DECREASE", "EXIT", "INITIAL"] },
+          "explanation_codes": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "cash_weight": { "type": "number", "minimum": 0, "maximum": 1 },
+    "explanations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message", "values"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "values": { "type": "object" }
+        }
+      }
+    }
+  }
+}

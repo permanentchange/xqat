@@ -243,6 +243,7 @@ class TradeAdviceItem:
     current_quantity: int | None
     target_weight: Decimal
     target_amount: Decimal | None
+    theoretical_target_quantity: int | None
     suggested_quantity: int | None
     max_confirmed_sell_quantity: int | None
     unresolved_quantity: int | None

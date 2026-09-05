@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "issues"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "severity", "stage", "scope", "decision_date", "security_id", "field", "message", "evidence", "suggested_action"],
+        "properties": {
+          "code": { "type": "string", "pattern": "^(CONFIG|DATA|FACTOR|STRATEGY|PORTFOLIO|BACKTEST|PERFORMANCE|ADVICE|ARTIFACT|SECURITY)_[A-Z0-9_]+$" },
+          "severity": { "enum": ["ERROR", "WARNING"] },
+          "stage": { "type": "string", "minLength": 1 },
+          "scope": { "type": "string", "minLength": 1 },
+          "decision_date": { "type": ["string", "null"], "format": "date" },
+          "security_id": { "type": ["string", "null"] },
+          "field": { "type": ["string", "null"] },
+          "message": { "type": "string", "minLength": 1 },
+          "evidence": { "type": "object" },
+          "suggested_action": { "type": "string" }
+        }
+      }
+    }
+  }
+}
+

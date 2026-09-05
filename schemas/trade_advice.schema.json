@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "decision_date", "effective_from", "account_as_of", "account_scope", "scope_completeness", "positions_completeness", "managed_total_assets", "available_cash", "items", "issues", "limitations", "non_order_disclaimer"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "decision_date": { "type": "string", "format": "date" },
+    "effective_from": { "type": "string", "format": "date" },
+    "account_as_of": { "type": ["string", "null"], "format": "date-time" },
+    "account_scope": { "type": ["string", "null"], "enum": ["STRATEGY_MANAGED", null] },
+    "scope_completeness": { "type": ["string", "null"], "enum": ["COMPLETE", "PARTIAL", "UNKNOWN", null] },
+    "positions_completeness": { "type": ["string", "null"], "enum": ["COMPLETE", "PARTIAL", "UNKNOWN", null] },
+    "managed_total_assets": { "type": ["number", "null"], "minimum": 0 },
+    "available_cash": { "type": ["number", "null"], "minimum": 0 },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["security_id", "action", "current_quantity", "target_weight", "target_amount", "theoretical_target_quantity", "suggested_quantity", "max_confirmed_sell_quantity", "unresolved_quantity", "reference_price", "reference_price_date", "reason_codes", "limitations"],
+        "properties": {
+          "security_id": { "type": "string" },
+          "action": { "enum": ["BUY", "SELL", "INCREASE", "DECREASE", "HOLD", "UNRESOLVED"] },
+          "current_quantity": { "type": ["integer", "null"], "minimum": 0 },
+          "target_weight": { "type": "number", "minimum": 0, "maximum": 1 },
+          "target_amount": { "type": ["number", "null"], "minimum": 0 },
+          "theoretical_target_quantity": { "type": ["integer", "null"], "minimum": 0 },
+          "suggested_quantity": { "type": ["integer", "null"], "minimum": 0 },
+          "max_confirmed_sell_quantity": { "type": ["integer", "null"], "minimum": 0 },
+          "unresolved_quantity": { "type": ["integer", "null"], "minimum": 0 },
+          "reference_price": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+          "reference_price_date": { "type": ["string", "null"], "format": "date" },
+          "reason_codes": { "type": "array", "items": { "type": "string" } },
+          "limitations": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "issues": { "type": "array", "items": { "type": "object" } },
+    "limitations": { "type": "array", "items": { "type": "string" } },
+    "non_order_disclaimer": { "type": "string", "minLength": 1 }
+  }
+}

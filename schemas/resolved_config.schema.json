@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "mode", "strategy_id", "strategy_version", "parameters", "research_input", "custom_factor_inputs", "decision_date", "start_date", "end_date", "account_input", "previous_target_input", "output_alias", "execution_assumptions"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "mode": { "enum": ["BACKTEST", "DAILY_TARGET", "DAILY_ADVICE"] },
+    "strategy_id": { "type": "string", "minLength": 1 },
+    "strategy_version": { "type": "string", "minLength": 1 },
+    "parameters": { "type": "object" },
+    "research_input": { "type": "object" },
+    "custom_factor_inputs": { "type": "array", "items": { "type": "object" } },
+    "decision_date": { "type": ["string", "null"], "format": "date" },
+    "start_date": { "type": ["string", "null"], "format": "date" },
+    "end_date": { "type": ["string", "null"], "format": "date" },
+    "account_input": { "type": ["object", "null"] },
+    "previous_target_input": { "type": ["object", "null"] },
+    "output_alias": { "type": "string", "minLength": 1 },
+    "execution_assumptions": { "type": "object" }
+  }
+}
+

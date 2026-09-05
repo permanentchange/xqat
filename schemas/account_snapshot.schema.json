@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xqatexp.local/schemas/account_snapshot-1.0.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "as_of",
+    "currency",
+    "account_scope",
+    "scope_completeness",
+    "positions_completeness",
+    "available_cash",
+    "managed_total_assets",
+    "excluded_asset_value",
+    "source_note",
+    "positions"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "as_of": { "type": "string", "format": "date-time" },
+    "currency": { "const": "CNY" },
+    "account_scope": { "const": "STRATEGY_MANAGED" },
+    "scope_completeness": { "enum": ["COMPLETE", "PARTIAL", "UNKNOWN"] },
+    "positions_completeness": { "enum": ["COMPLETE", "PARTIAL", "UNKNOWN"] },
+    "available_cash": { "type": ["number", "null"], "minimum": 0 },
+    "managed_total_assets": { "type": ["number", "null"], "minimum": 0 },
+    "excluded_asset_value": { "type": ["number", "null"], "minimum": 0 },
+    "source_note": { "type": "string" },
+    "positions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "security_id",
+          "quantity",
+          "sellable_quantity",
+          "market_value",
+          "reference_price",
+          "reference_price_date"
+        ],
+        "properties": {
+          "security_id": { "type": "string", "pattern": "^[0-9]{6}\\.(SH|SZ)$" },
+          "quantity": { "type": "integer", "minimum": 0 },
+          "sellable_quantity": { "type": ["integer", "null"], "minimum": 0 },
+          "market_value": { "type": ["number", "null"], "minimum": 0 },
+          "reference_price": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+          "reference_price_date": { "type": ["string", "null"], "format": "date" }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "positions_completeness": { "const": "UNKNOWN" } }, "required": ["positions_completeness"] },
+      "then": { "properties": { "positions": { "maxItems": 0 } } }
+    },
+    {
+      "if": { "properties": { "scope_completeness": { "enum": ["PARTIAL", "UNKNOWN"] } }, "required": ["scope_completeness"] },
+      "then": { "properties": { "managed_total_assets": { "type": "null" } } }
+    }
+  ]
+}

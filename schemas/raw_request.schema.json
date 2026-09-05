@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "request_id", "provider", "api_name", "requested_fields", "parameters", "page_number", "offset", "limit", "started_at", "completed_at", "attempt_count", "response_row_count"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "request_id": { "type": "string", "minLength": 1 },
+    "provider": { "const": "tushare" },
+    "api_name": { "type": "string", "minLength": 1 },
+    "requested_fields": { "type": "array", "items": { "type": "string" }, "minItems": 1, "uniqueItems": true },
+    "parameters": { "type": "object" },
+    "page_number": { "type": "integer", "minimum": 1 },
+    "offset": { "type": "integer", "minimum": 0 },
+    "limit": { "type": "integer", "minimum": 1 },
+    "started_at": { "type": "string", "format": "date-time" },
+    "completed_at": { "type": "string", "format": "date-time" },
+    "attempt_count": { "type": "integer", "minimum": 1 },
+    "response_row_count": { "type": "integer", "minimum": 0 }
+  }
+}
+

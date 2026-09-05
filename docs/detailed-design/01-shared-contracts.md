@@ -152,7 +152,7 @@ class CustomFactorView(Protocol):
 
 `ExecutionRecord`：`execution_date`、`security_id`、`side`、`requested_quantity`、`filled_quantity`、`execution_price`、`gross_amount`、`fees`、`status`、`unfilled_reason`（UnfilledReason，可空）。
 
-`TradeAdviceItem`：`security_id`、`action`、`current_quantity`（可空）、`target_weight`、`target_amount`（可空）、`suggested_quantity`（可空）、`max_confirmed_sell_quantity`（可空）、`unresolved_quantity`（可空）、`reference_price`（可空）、`reference_price_date`（可空）、`reason_codes`、`limitations`。
+`TradeAdviceItem`：`security_id`、`action`、`current_quantity`（可空）、`target_weight`、`target_amount`（可空）、`theoretical_target_quantity`（可空）、`suggested_quantity`（可空）、`max_confirmed_sell_quantity`（可空）、`unresolved_quantity`（可空）、`reference_price`（可空）、`reference_price_date`（可空）、`reason_codes`、`limitations`。
 
 ## 8. Issue
 

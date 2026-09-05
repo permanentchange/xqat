@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "mode", "failed_stage", "primary_issue", "issues", "input_references", "suggested_actions", "generated_at"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "run_id": { "type": "string", "minLength": 1 },
+    "mode": { "enum": ["BACKTEST", "DAILY_TARGET", "DAILY_ADVICE"] },
+    "failed_stage": { "type": "string", "minLength": 1 },
+    "primary_issue": { "type": "object" },
+    "issues": { "type": "array", "items": { "type": "object" }, "minItems": 1 },
+    "input_references": { "type": "array", "items": { "type": "object" } },
+    "suggested_actions": { "type": "array", "items": { "type": "string" } },
+    "generated_at": { "type": "string", "format": "date-time" }
+  }
+}
+
