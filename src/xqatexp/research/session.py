@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import duckdb
 
@@ -92,6 +92,16 @@ class ResearchDataViewImpl:
         return ResearchDataSliceImpl(
             self._connection, self._declaration, as_of_date, self.earliest_date
         )
+
+    def next_trading_day(self, after: date) -> date:
+        row = self._connection.execute(
+            "SELECT calendar_date FROM trade_calendar "
+            "WHERE is_open AND calendar_date>? ORDER BY calendar_date LIMIT 1",
+            [after],
+        ).fetchone()
+        if row is None:
+            raise ResearchAccessError("DATA_REQUIRED_MISSING: next trading day")
+        return cast(date, row[0])
 
     def _bounded(self, start: date, end: date) -> None:
         if start < self.earliest_date or end > self.decision_date or start > end:
