@@ -28,7 +28,14 @@ from xqatexp.research.factors import (
     volatility,
     volume_price_confirmation,
 )
-from xqatexp.research.preparation import research_price
+from xqatexp.research.preparation import (
+    annualized_roe,
+    choose_announce_date,
+    derive_quarter_profit,
+    derive_ttm_profit,
+    next_open_date,
+    research_price,
+)
 
 TABLE_NAMES = (
     "security_master",
@@ -263,6 +270,8 @@ class ResearchBuilder:
             )
         rows["market_daily"].sort(key=lambda item: (item["security_id"], item["trade_date"]))
         self._status_rows(rows, raw, masters, definite_open_dates)
+        rows["financial_snapshot"] = self._financial_rows(raw, definite_open_dates)
+        rows["corporate_action"] = self._corporate_action_rows(raw)
         rows["system_factor_daily"] = self._factor_rows(rows["market_daily"])
         return {
             name: pa.Table.from_pylist(rows[name], schema=self._schemas.arrow_schema(name))
@@ -321,6 +330,124 @@ class ResearchBuilder:
         rows["security_status_daily"].sort(
             key=lambda item: (item["security_id"], item["trade_date"])
         )
+
+    def _financial_rows(self, raw: RawMap, open_dates: Sequence[date]) -> list[Row]:
+        indicators = {
+            (str(item["ts_code"]), str(item["end_date"]), str(item.get("ann_date", ""))): item
+            for item in raw.get("fina_indicator", [])
+        }
+        output: list[Row] = []
+        revisions: dict[tuple[str, date], int] = defaultdict(int)
+        for income in sorted(
+            raw.get("income", []),
+            key=lambda item: (
+                str(item["ts_code"]),
+                str(item["end_date"]),
+                str(item.get("f_ann_date") or item.get("ann_date")),
+                str(item.get("update_flag", "")),
+            ),
+        ):
+            security_id = str(income["ts_code"])
+            period = _required_date(income["end_date"])
+            announced = choose_announce_date(
+                str(income["f_ann_date"]) if income.get("f_ann_date") else None,
+                str(income["ann_date"]) if income.get("ann_date") else None,
+            )
+            if announced is None:
+                continue
+            available = next_open_date(announced, open_dates)
+            if available is None:
+                continue
+            key = (security_id, period)
+            revisions[key] += 1
+            ytd = (
+                _decimal(Decimal(str(income["n_income_attr_p"])) * 10_000, "0.0001")
+                if income.get("n_income_attr_p") is not None
+                else None
+            )
+            quarter = period.month // 3
+            indicator = indicators.get(
+                (security_id, str(income["end_date"]), announced.strftime("%Y%m%d"))
+            )
+            if indicator is None:
+                indicator = next(
+                    (
+                        item
+                        for item in raw.get("fina_indicator", [])
+                        if str(item["ts_code"]) == security_id
+                        and str(item["end_date"]) == str(income["end_date"])
+                    ),
+                    None,
+                )
+            roe = annualized_roe(
+                Decimal(str(indicator["roe_yearly"]))
+                if indicator is not None and indicator.get("roe_yearly") is not None
+                else None
+            )
+            sources = (income,) if indicator is None else (income, indicator)
+            output.append(
+                {
+                    "security_id": security_id,
+                    "report_period": period,
+                    "announce_date": announced,
+                    "available_from": available,
+                    "revision_seq": revisions[key],
+                    "net_profit_parent_ytd": ytd,
+                    "net_profit_parent_quarter": derive_quarter_profit(quarter, ytd, None),
+                    "net_profit_parent_ttm": derive_ttm_profit(quarter, ytd, None, None),
+                    "roe_annualized": roe,
+                    "consecutive_loss_quarters": None,
+                    "source_hash": _source_hash(sources),
+                }
+            )
+        output.sort(
+            key=lambda item: (
+                item["security_id"],
+                item["report_period"],
+                item["announce_date"],
+                item["revision_seq"],
+            )
+        )
+        return output
+
+    def _corporate_action_rows(self, raw: RawMap) -> list[Row]:
+        output = []
+        for record in raw.get("dividend", []):
+            fact = _facts(record)
+            cash = _decimal(fact.get("cash_div"), "0.000001")
+            after_tax = _decimal(fact.get("cash_div_tax"), "0.000001")
+            stock_values = [
+                Decimal(str(fact.get(name) or 0))
+                for name in ("stk_div", "stk_bo_rate", "stk_co_rate")
+            ]
+            stock_ratio = sum(stock_values, Decimal("0"))
+            action_type = (
+                "CASH_DIVIDEND" if cash is not None and cash > 0 and stock_ratio == 0 else "OTHER"
+            )
+            announce_date = _required_date(fact["ann_date"])
+            event_id = hashlib.sha256(canonical_json_bytes(fact)).hexdigest()
+            output.append(
+                {
+                    "event_id": event_id,
+                    "security_id": str(fact["ts_code"]),
+                    "action_type": action_type,
+                    "announce_date": announce_date,
+                    "implementation_announce_date": _date(fact.get("imp_ann_date")),
+                    "record_date": _date(fact.get("record_date")),
+                    "ex_date": _date(fact.get("ex_date")),
+                    "pay_date": _date(fact.get("pay_date")),
+                    "stock_list_date": _date(fact.get("div_listdate")),
+                    "cash_per_share_before_tax": cash,
+                    "cash_per_share_after_tax": after_tax,
+                    "stock_ratio": _decimal(stock_ratio, "0.000000000001"),
+                    "split_ratio": None,
+                    "rights_ratio": None,
+                    "rights_price": None,
+                    "available_from": announce_date,
+                    "source_hash": _source_hash((record,)),
+                }
+            )
+        return sorted(output, key=lambda item: item["event_id"])
 
     def _factor_rows(self, market_rows: Sequence[Row]) -> list[Row]:
         histories: dict[str, list[Row]] = defaultdict(list)

@@ -123,6 +123,60 @@ def test_research_build_normalizes_units_prices_and_all_table_schemas(tmp_path: 
                 },
             ),
         ),
+        _raw(
+            raw_root,
+            "income",
+            (
+                {
+                    "ts_code": "600000.SH",
+                    "ann_date": "20260902",
+                    "f_ann_date": "20260903",
+                    "end_date": "20260630",
+                    "report_type": "1",
+                    "comp_type": "1",
+                    "n_income_attr_p": 2.5,
+                    "update_flag": "1",
+                },
+            ),
+        ),
+        _raw(
+            raw_root,
+            "fina_indicator",
+            (
+                {
+                    "ts_code": "600000.SH",
+                    "ann_date": "20260903",
+                    "end_date": "20260630",
+                    "roe": 1.0,
+                    "roe_waa": 1.1,
+                    "roe_yearly": 12.5,
+                    "profit_dedt": 2.0,
+                    "update_flag": "1",
+                },
+            ),
+        ),
+        _raw(
+            raw_root,
+            "dividend",
+            (
+                {
+                    "ts_code": "600000.SH",
+                    "end_date": "20251231",
+                    "ann_date": "20260901",
+                    "div_proc": "实施",
+                    "stk_div": 0.0,
+                    "stk_bo_rate": 0.0,
+                    "stk_co_rate": 0.0,
+                    "cash_div": 0.10,
+                    "cash_div_tax": 0.08,
+                    "record_date": "20260903",
+                    "ex_date": "20260904",
+                    "pay_date": "20260904",
+                    "div_listdate": None,
+                    "imp_ann_date": "20260902",
+                },
+            ),
+        ),
     )
     output = tmp_path / "research"
     result = ResearchBuilder().build(
@@ -146,3 +200,10 @@ def test_research_build_normalizes_units_prices_and_all_table_schemas(tmp_path: 
     status = pq.read_table(output / "tables/security_status_daily.parquet").to_pylist()
     assert status[0]["is_limit_up_locked"] is False
     assert status[0]["is_limit_down_locked"] is False
+    financial = pq.read_table(output / "tables/financial_snapshot.parquet").to_pylist()
+    assert financial[0]["available_from"] == date(2026, 9, 4)
+    assert financial[0]["net_profit_parent_ytd"] == Decimal("25000.0000")
+    assert financial[0]["roe_annualized"] == Decimal("0.125000000000")
+    actions = pq.read_table(output / "tables/corporate_action.parquet").to_pylist()
+    assert actions[0]["action_type"] == "CASH_DIVIDEND"
+    assert actions[0]["cash_per_share_after_tax"] == Decimal("0.080000")
