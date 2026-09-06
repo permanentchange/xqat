@@ -459,6 +459,8 @@ class ResearchBuilder:
                 prices = [float(item["research_close"]) for item in history[: index + 1]]
                 amounts = [float(item["amount_cny"]) for item in history[: index + 1]]
                 definitions = {
+                    "total_mv_pct_v1": None,
+                    "amount_20d_pct_v1": None,
                     "momentum_60_ex5_v1": (
                         prices[-6] / prices[-61] - 1.0 if len(prices) >= 61 else None
                     ),

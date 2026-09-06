@@ -207,3 +207,17 @@ def test_research_build_normalizes_units_prices_and_all_table_schemas(tmp_path: 
     actions = pq.read_table(output / "tables/corporate_action.parquet").to_pylist()
     assert actions[0]["action_type"] == "CASH_DIVIDEND"
     assert actions[0]["cash_per_share_after_tax"] == Decimal("0.080000")
+    factors = pq.read_table(output / "tables/system_factor_daily.parquet").to_pylist()
+    factor_ids = {row["factor_id"] for row in factors}
+    assert {
+        "total_mv_pct_v1",
+        "amount_20d_pct_v1",
+        "momentum_60_ex5_v1",
+        "momentum_40_v1",
+        "trend_stability_60_v1",
+        "volume_price_confirm_20_v1",
+        "volatility_20_v1",
+        "roe_annualized_v1",
+        "profit_positive_ttm_v1",
+        "consecutive_loss_2_v1",
+    } == factor_ids
