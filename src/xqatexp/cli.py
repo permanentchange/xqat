@@ -4,6 +4,8 @@ import argparse
 import sys
 from collections.abc import Sequence
 
+from xqatexp.application.services import SelfCheckService
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -11,7 +13,8 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Local A-share quantitative research and decision tool.",
     )
     commands = parser.add_subparsers(dest="command", metavar="COMMAND")
-    commands.add_parser("self-check", help="Validate the local installation.")
+    self_check = commands.add_parser("self-check", help="Validate the local installation.")
+    self_check.add_argument("--offline", action="store_true", help="Forbid network checks.")
 
     data = commands.add_parser("data", help="Fetch, build, and inspect data.")
     data_commands = data.add_subparsers(dest="data_command", metavar="COMMAND")
@@ -39,6 +42,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command is None:
         parser.print_help()
+        return 0
+    if args.command == "self-check":
+        try:
+            result = SelfCheckService().run(offline=args.offline)
+        except Exception as error:
+            print(str(error), file=sys.stderr)
+            return 3
+        print(f"SELF_CHECK_OK checks={','.join(result.checks)}")
         return 0
     print(f"{args.command} command is not implemented yet", file=sys.stderr)
     return 10
