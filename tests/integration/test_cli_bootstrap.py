@@ -37,7 +37,7 @@ def test_unwired_business_command_never_reports_success() -> None:
     environment["PYTHONPATH"] = str(PROJECT_ROOT / "src")
 
     completed = subprocess.run(
-        [sys.executable, "-m", "xqatexp", "data", "build"],
+        [sys.executable, "-m", "xqatexp", "factor", "check"],
         cwd=PROJECT_ROOT,
         env=environment,
         capture_output=True,

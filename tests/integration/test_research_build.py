@@ -7,11 +7,12 @@ from pathlib import Path
 import pyarrow.parquet as pq
 
 from xqatexp.artifacts.readers import ArtifactReader
+from xqatexp.cli import main
 from xqatexp.domain.enums import OverwritePolicy
 from xqatexp.providers.tushare.client import QueryResult
 from xqatexp.providers.tushare.raw import FetchRequest, RawFetchService
 from xqatexp.providers.tushare.registry import get_dataset
-from xqatexp.research.tables import ResearchBuildConfig, ResearchBuilder
+from xqatexp.research.tables import ResearchBuildConfig, ResearchBuilder, ResearchCheckService
 
 
 class _RecordsClient:
@@ -24,13 +25,19 @@ class _RecordsClient:
         return QueryResult(tuple(fields), self.records, 1)
 
 
-def _raw(root: Path, dataset_id: str, records: tuple[dict[str, object], ...]) -> Path:
+def _raw(
+    root: Path,
+    dataset_id: str,
+    records: tuple[dict[str, object], ...],
+    *,
+    slice_date: date = date(2026, 9, 4),
+) -> Path:
     output = root / dataset_id
     RawFetchService(_RecordsClient(dataset_id, records)).fetch(
         FetchRequest(
             dataset_id=dataset_id,
-            start_date=date(2026, 9, 4),
-            end_date=date(2026, 9, 4),
+            start_date=slice_date,
+            end_date=slice_date,
             security_ids=(),
             fields=(),
             output_path=output,
@@ -221,3 +228,36 @@ def test_research_build_normalizes_units_prices_and_all_table_schemas(tmp_path: 
         "profit_positive_ttm_v1",
         "consecutive_loss_2_v1",
     } == factor_ids
+    report = ResearchCheckService().check(output)
+    assert report.valid is True
+    assert report.issue_codes == ()
+
+    cli_report = tmp_path / "research-check.json"
+    assert (
+        main(["data", "check-research", "--input", str(output), "--report", str(cli_report)]) == 0
+    )
+    assert '"valid": true' in cli_report.read_text(encoding="utf-8")
+
+    config_path = tmp_path / "build.toml"
+    config_path.write_text(
+        'schema_version = "1.0"\nstart_date = "2026-09-04"\nend_date = "2026-09-04"\n'
+        '[strategy]\ncsi300_etf_id = "510300.SH"\n',
+        encoding="utf-8",
+    )
+    cli_output = tmp_path / "research-cli"
+    arguments = ["data", "build", "--config", str(config_path), "--output", str(cli_output)]
+    for raw_path in raw_inputs:
+        arguments.extend(("--raw-root", str(raw_path)))
+    assert main(arguments) == 0
+    assert ResearchCheckService().check(cli_output).valid is True
+
+
+def test_research_check_reports_tampered_table(tmp_path: Path) -> None:
+    test_research_build_normalizes_units_prices_and_all_table_schemas(tmp_path)
+    output = tmp_path / "research"
+    market = output / "tables/market_daily.parquet"
+    market.write_bytes(market.read_bytes() + b"tampered")
+
+    report = ResearchCheckService().check(output)
+    assert report.valid is False
+    assert report.issue_codes == ("ARTIFACT_HASH_MISMATCH",)

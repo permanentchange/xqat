@@ -11,6 +11,7 @@ from xqatexp.research.preparation import (
     next_open_date,
     research_price,
 )
+from xqatexp.research.tables import ResearchBuilder
 
 
 def test_raw_unit_and_adjusted_price_boundaries() -> None:
@@ -39,3 +40,44 @@ def test_quarter_and_ttm_profit_use_only_complete_ytd_components() -> None:
 def test_roe_yearly_is_converted_from_percent_to_ratio() -> None:
     assert annualized_roe(Decimal("12.5")) == Decimal("0.125000000000")
     assert annualized_roe(None) is None
+
+
+def test_financial_builder_derives_visible_quarter_ttm_losses_and_revisions() -> None:
+    def income(period: str, announced: str, profit: str, update: str = "0"):
+        return {
+            "ts_code": "600000.SH",
+            "ann_date": announced,
+            "f_ann_date": announced,
+            "end_date": period,
+            "report_type": "1",
+            "comp_type": "1",
+            "n_income_attr_p": profit,
+            "update_flag": update,
+        }
+
+    raw = {
+        "income": [
+            income("20240930", "20241030", "40"),
+            income("20241231", "20250330", "70"),
+            income("20250331", "20250430", "-2"),
+            income("20250630", "20250830", "-5"),
+            income("20250930", "20251030", "55"),
+            income("20250930", "20251115", "56", "1"),
+        ]
+    }
+    opens = (
+        date(2024, 10, 31),
+        date(2025, 3, 31),
+        date(2025, 5, 6),
+        date(2025, 9, 1),
+        date(2025, 10, 31),
+        date(2025, 11, 17),
+    )
+    rows = ResearchBuilder()._financial_rows(raw, opens)
+    q2 = next(row for row in rows if row["report_period"] == date(2025, 6, 30))
+    assert q2["net_profit_parent_quarter"] == Decimal("-30000.0000")
+    assert q2["consecutive_loss_quarters"] == 2
+    revisions = [row for row in rows if row["report_period"] == date(2025, 9, 30)]
+    assert [row["revision_seq"] for row in revisions] == [1, 2]
+    assert revisions[0]["net_profit_parent_ttm"] == Decimal("850000.0000")
+    assert revisions[1]["net_profit_parent_ttm"] == Decimal("860000.0000")

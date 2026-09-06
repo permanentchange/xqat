@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import sys
+import tomllib
 from collections.abc import Sequence
 from datetime import date, timedelta
 from pathlib import Path
@@ -16,6 +17,7 @@ from xqatexp.providers.tushare.capability import CapabilityProbe
 from xqatexp.providers.tushare.client import TushareClient, TushareError
 from xqatexp.providers.tushare.raw import FetchRequest, RawCheckService, RawFetchService
 from xqatexp.providers.tushare.registry import dataset_ids
+from xqatexp.research.tables import ResearchBuildConfig, ResearchBuilder, ResearchCheckService
 from xqatexp.security import SecurityError, load_tushare_token
 
 
@@ -42,8 +44,20 @@ def _build_parser() -> argparse.ArgumentParser:
     check_raw = data_commands.add_parser("check-raw")
     check_raw.add_argument("--input", required=True, type=Path)
     check_raw.add_argument("--report", required=True, type=Path)
-    for name in ("build", "update", "check-research"):
-        data_commands.add_parser(name)
+    build = data_commands.add_parser("build")
+    build.add_argument("--raw-root", required=True, action="append", type=Path)
+    build.add_argument("--config", required=True, type=Path)
+    build.add_argument("--output", required=True, type=Path)
+    build.add_argument("--existing", choices=("error", "skip", "overwrite"), default="error")
+    update = data_commands.add_parser("update")
+    update.add_argument("--base", required=True, type=Path)
+    update.add_argument("--raw-root", action="append", default=[], type=Path)
+    update.add_argument("--config", required=True, type=Path)
+    update.add_argument("--output", required=True, type=Path)
+    update.add_argument("--existing", choices=("error", "skip", "overwrite"), default="error")
+    check_research = data_commands.add_parser("check-research")
+    check_research.add_argument("--input", required=True, type=Path)
+    check_research.add_argument("--report", required=True, type=Path)
 
     factor = commands.add_parser("factor", help="Validate user custom factors.")
     factor.add_subparsers(dest="factor_command", metavar="COMMAND").add_parser("check")
@@ -123,20 +137,46 @@ def _run_data(args: argparse.Namespace) -> int:
             print(f"RAW_WRITTEN output={published.path}")
             return 0
         if args.data_command == "check-raw":
-            report = RawCheckService().check(args.input)
+            raw_report = RawCheckService().check(args.input)
             _write_new(
                 args.report,
                 canonical_json_bytes(
                     {
                         "schema_version": "1.0",
-                        "valid": report.valid,
-                        "row_count": report.row_count,
-                        "issue_codes": list(report.issue_codes),
+                        "valid": raw_report.valid,
+                        "row_count": raw_report.row_count,
+                        "issue_codes": list(raw_report.issue_codes),
                     }
                 ),
             )
-            print(f"RAW_CHECK valid={str(report.valid).lower()} report={args.report}")
-            return 0 if report.valid else 3
+            print(f"RAW_CHECK valid={str(raw_report.valid).lower()} report={args.report}")
+            return 0 if raw_report.valid else 3
+        if args.data_command == "check-research":
+            research_report = ResearchCheckService().check(args.input)
+            _write_new(
+                args.report,
+                canonical_json_bytes(
+                    {
+                        "schema_version": "1.0",
+                        "valid": research_report.valid,
+                        "table_rows": research_report.table_rows,
+                        "issue_codes": list(research_report.issue_codes),
+                    }
+                ),
+            )
+            print(f"RESEARCH_CHECK valid={str(research_report.valid).lower()} report={args.report}")
+            return 0 if research_report.valid else 3
+        if args.data_command in {"build", "update"}:
+            build_config = _research_build_config(args.config, args.existing)
+            builder = ResearchBuilder()
+            if args.data_command == "build":
+                published = builder.build(tuple(args.raw_root), build_config, args.output)
+            else:
+                published = builder.update(
+                    args.base, tuple(args.raw_root), build_config, args.output
+                )
+            print(f"RESEARCH_WRITTEN output={published.path}")
+            return 0
     except SecurityError as error:
         print(str(error), file=sys.stderr)
         return 3
@@ -158,6 +198,21 @@ def _previous_weekday(value: date) -> date:
     while candidate.weekday() >= 5:
         candidate -= timedelta(days=1)
     return candidate
+
+
+def _research_build_config(path: Path, existing: str) -> ResearchBuildConfig:
+    with path.open("rb") as stream:
+        raw = tomllib.load(stream)
+    strategy = raw.get("strategy")
+    if raw.get("schema_version") != "1.0" or not isinstance(strategy, dict):
+        raise ValueError("CONFIG_SCHEMA_INVALID: research build config")
+    try:
+        start = date.fromisoformat(str(raw["start_date"]))
+        end = date.fromisoformat(str(raw["end_date"]))
+        etf_id = str(strategy["csi300_etf_id"])
+    except (KeyError, ValueError) as error:
+        raise ValueError("CONFIG_VALUE_INVALID: research date range or ETF id") from error
+    return ResearchBuildConfig(start, end, etf_id, OverwritePolicy(existing.upper()))
 
 
 def _write_new(path: Path, payload: bytes) -> None:
