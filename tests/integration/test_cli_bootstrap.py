@@ -37,7 +37,7 @@ def test_unwired_business_command_never_reports_success() -> None:
     environment["PYTHONPATH"] = str(PROJECT_ROOT / "src")
 
     completed = subprocess.run(
-        [sys.executable, "-m", "xqatexp", "data", "fetch"],
+        [sys.executable, "-m", "xqatexp", "data", "build"],
         cwd=PROJECT_ROOT,
         env=environment,
         capture_output=True,
@@ -47,3 +47,32 @@ def test_unwired_business_command_never_reports_success() -> None:
 
     assert completed.returncode == 10
     assert "not implemented" in completed.stderr.lower()
+
+
+def test_capabilities_without_token_fails_without_creating_output(tmp_path: Path) -> None:
+    """Catches a fake capability success when no live credential is available."""
+    output = tmp_path / "provider_capabilities.json"
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(PROJECT_ROOT / "src")
+    environment.pop("TUSHARE_TOKEN", None)
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "xqatexp",
+            "data",
+            "capabilities",
+            "--output",
+            str(output),
+        ],
+        cwd=PROJECT_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 3
+    assert "SECURITY_SECRET_MISSING" in completed.stderr
+    assert not output.exists()
