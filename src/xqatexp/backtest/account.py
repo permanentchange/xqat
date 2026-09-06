@@ -22,7 +22,7 @@ class SimulatedAccount:
         self.positions = dict(positions or {})
         self.sellable_quantities = dict(sellable or {})
         self.pending_sellable: dict[date, dict[str, int]] = {}
-        self.entitlements: dict[str, tuple[str, Decimal, int]] = {}
+        self.entitlements: dict[str, tuple[str, Decimal, int, int]] = {}
         self.ledger: list[tuple[str, object]] = [("CASH_INITIALIZED", initial_cash)]
         self._assert_invariants()
 

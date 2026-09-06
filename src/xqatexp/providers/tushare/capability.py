@@ -103,6 +103,8 @@ class CapabilityProbe:
             params.update(ts_code=self._etf_id, start_date=trade_date, end_date=trade_date)
         elif spec.dataset_id == "index_daily":
             params.update(start_date=trade_date, end_date=trade_date)
-        elif spec.dataset_id in {"income", "fina_indicator", "dividend"}:
+        elif spec.dataset_id in {"income", "fina_indicator"}:
             params.update(ts_code="600000.SH", start_date=trade_date, end_date=trade_date)
+        elif spec.dataset_id == "dividend":
+            params["ts_code"] = "600000.SH"
         return params

@@ -71,7 +71,7 @@ class PerformanceAnalyzer:
             None,
         )
         calmar = annualized / abs(float(worst)) if worst < 0 else None
-        limitations = ("PERFORMANCE_INSUFFICIENT_SAMPLE",) if intervals < 60 else ()
+        limitations = ("SHORT_PERFORMANCE_SAMPLE",) if intervals < 60 else ()
         return PerformanceResult(
             len(points),
             intervals,

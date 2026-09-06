@@ -28,6 +28,7 @@ class QueryResult:
     fields: tuple[str, ...]
     records: tuple[dict[str, Any], ...]
     attempts: int
+    page_numbers: tuple[int, ...] = ()
 
 
 class TokenBucket:
@@ -143,6 +144,7 @@ class TushareClient:
         base_params.pop("offset", None)
         base_params.pop("limit", None)
         records: list[dict[str, Any]] = []
+        page_numbers: list[int] = []
         returned_fields: tuple[str, ...] | None = None
         total_attempts = 0
         for page in range(max_pages):
@@ -157,8 +159,11 @@ class TushareClient:
                     f"DATA_PROVIDER_SCHEMA_MISMATCH: {api_name} fields changed between pages"
                 )
             records.extend(result.records)
+            page_numbers.extend([page + 1] * len(result.records))
             if len(result.records) < page_size:
-                return QueryResult(returned_fields, tuple(records), total_attempts)
+                return QueryResult(
+                    returned_fields, tuple(records), total_attempts, tuple(page_numbers)
+                )
         raise TushareError(
             f"DATA_PROVIDER_TEMPORARY_FAILURE: {api_name} pagination limit exhausted"
         )

@@ -38,7 +38,7 @@ annualized_return = (NAV_end / NAV_start)^(252 / return_intervals) - 1
 
 - 交易次数、买入次数、卖出次数；
 - 完全成交、部分成交、未成交次数及原因分布；
-- 总佣金、过户费、印花税、总滑点成本；
+- 总佣金、过户费、印花税、总滑点成本；逐笔滑点成本为 BUY 的 `数量 × (成交价 - 开盘参考价)` 或 SELL 的 `数量 × (开盘参考价 - 成交价)`，全期值为逐笔求和；
 - 费用占初始资产和成交额比例；
 - 日单边换手：`Σ_i abs(trade_notional_t,i) / NAV_before_first_trade_t`；全期值为各交易日日单边换手之和；
 - 日双边调整换手：在同一 T 日开盘参考价格上，`Σ_assets abs(weight_after_trade - weight_before_trade) / 2`，assets 包含现金；全期值为每日之和；

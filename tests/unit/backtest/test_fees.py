@@ -33,15 +33,9 @@ def test_zero_gross_has_no_minimum_commission_and_etf_no_tax() -> None:
 
 def test_historical_equity_fee_boundaries_are_date_effective() -> None:
     model = FeeModel.default()
-    assert (
-        model.calculate(
-            AssetType.A_SHARE, OrderSide.SELL, Decimal("1000"), date(2023, 8, 27)
-        ).total
-        == Decimal("6.01")
-    )
-    assert (
-        model.calculate(
-            AssetType.A_SHARE, OrderSide.SELL, Decimal("1000"), date(2022, 4, 28)
-        ).total
-        == Decimal("6.02")
-    )
+    assert model.calculate(
+        AssetType.A_SHARE, OrderSide.SELL, Decimal("1000"), date(2023, 8, 27)
+    ).total == Decimal("6.01")
+    assert model.calculate(
+        AssetType.A_SHARE, OrderSide.SELL, Decimal("1000"), date(2022, 4, 28)
+    ).total == Decimal("6.02")

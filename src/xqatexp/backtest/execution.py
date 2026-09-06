@@ -118,6 +118,7 @@ class ExecutionSimulator:
                 fees,
                 status,
                 reason,
+                instruction.reference_price,
             ),
             reason,
             instruction.requested_quantity - quantity,

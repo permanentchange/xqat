@@ -156,6 +156,10 @@ Gzip 内为 UTF-8 JSON Lines，每行一个供应商原始记录；键名和值�
 | `valuation_date` | date32 | 否 |
 | `nav` | decimal128(20,4) | 否 |
 | `daily_return` | decimal128(18,12) | 是（首日） |
+| `benchmark_close` | decimal128(18,6) | 是（基准缺失） |
+| `benchmark_nav` | decimal128(18,12) | 是（基准缺失） |
+| `benchmark_daily_return` | decimal128(18,12) | 是（首日或基准缺失） |
+| `cash_opportunity_cost_vs_benchmark` | decimal128(18,12) | 是（首日或基准缺失） |
 | `running_peak` | decimal128(20,4) | 否 |
 | `drawdown` | decimal128(18,12) | 否 |
 | `cash_available` | decimal128(20,4) | 否 |
@@ -221,7 +225,7 @@ Gzip 内为 UTF-8 JSON Lines，每行一个供应商原始记录；键名和值�
 
 ### 9.1 metrics.json 1.0
 
-字段：`schema_version`、`formula_version`、`date_start`、`date_end`、`valuation_points`、`return_intervals`、`initial_nav`、`final_nav`、`cumulative_return`、`annualized_return`、`annualized_volatility`、`max_drawdown`、`max_drawdown_peak_date`、`max_drawdown_trough_date`、`max_drawdown_recovery_date`、`sharpe`、`calmar`、`one_way_turnover`、`two_way_adjustment_turnover`、`total_commission`、`total_transfer_fee`、`total_stamp_duty`、`total_slippage_cost`、`stock_return_contribution`、`etf_return_contribution`、`cash_cost_contribution`、`limitations`。指标不可计算时为 null，并必须有稳定 limitation code。
+字段：`schema_version`、`formula_version`、`date_start`、`date_end`、`valuation_points`、`return_intervals`、`initial_nav`、`final_nav`、`cumulative_return`、`benchmark_cumulative_return`、`excess_return`、`cash_opportunity_cost_vs_benchmark`、`annualized_return`、`annualized_volatility`、`max_drawdown`、`max_drawdown_peak_date`、`max_drawdown_trough_date`、`max_drawdown_recovery_date`、`sharpe`、`calmar`、`one_way_turnover`、`two_way_adjustment_turnover`、`total_commission`、`total_transfer_fee`、`total_stamp_duty`、`total_slippage_cost`、`stock_return_contribution`、`etf_return_contribution`、`cash_cost_contribution`、`rolling_{20,60,120}_min_return` 及各自 `start_date/end_date`、`limitations`。指标不可计算时为 null，并必须有稳定 limitation code。
 
 ### 9.2 period_metrics.csv 1.0
 

@@ -65,6 +65,9 @@ class _Data:
             for security_id in sorted(security_ids)
         )
 
+    def benchmark_close(self, on_date: date):
+        return Decimal(100 + self.days.index(on_date))
+
 
 class _Strategy:
     def generate_target(self, research, custom, parameters):
@@ -77,11 +80,65 @@ class _Strategy:
             decision_date=research.decision_date,
             effective_from=date(2026, 9, 14),
             positions=(
-                TargetPosition(
-                    "600001.SH", AssetType.A_SHARE, Decimal("1"), 1, 90.0, None, (), 1
-                ),
+                TargetPosition("600001.SH", AssetType.A_SHARE, Decimal("1"), 1, 90.0, None, (), 1),
             ),
         )
+
+
+class _CorporateActionData(_Data):
+    days = (
+        date(2026, 9, 4),
+        date(2026, 9, 7),
+        date(2026, 9, 8),
+        date(2026, 9, 9),
+        date(2026, 9, 10),
+        date(2026, 9, 11),
+        date(2026, 9, 14),
+    )
+
+    def corporate_actions(self, start: date, end: date):
+        del start, end
+        return (
+            {
+                "event_id": "cash-stock",
+                "security_id": "600000.SH",
+                "action_type": "STOCK_DISTRIBUTION",
+                "record_date": date(2026, 9, 7),
+                "ex_date": date(2026, 9, 8),
+                "pay_date": date(2026, 9, 9),
+                "stock_list_date": date(2026, 9, 10),
+                "cash_per_share_before_tax": Decimal("0.12"),
+                "cash_per_share_after_tax": Decimal("0.10"),
+                "stock_ratio": Decimal("0.20"),
+                "split_ratio": None,
+            },
+        )
+
+    def execution_rows(self, execution_date: date, security_ids):
+        rows = list(super().execution_rows(execution_date, security_ids))
+        if execution_date >= date(2026, 9, 8):
+            for row in rows:
+                if row["security_id"] == "600000.SH":
+                    row["open_raw"] = Decimal("8.25")
+                    row["close_raw"] = Decimal("8.25")
+        return tuple(rows)
+
+
+class _SuspendedData(_Data):
+    def execution_rows(self, execution_date: date, security_ids):
+        rows = list(super().execution_rows(execution_date, security_ids))
+        if execution_date == date(2026, 9, 8):
+            for row in rows:
+                if row["security_id"] == "600000.SH":
+                    row.update(
+                        open_raw=None,
+                        high_raw=None,
+                        low_raw=None,
+                        close_raw=None,
+                        valuation_close=Decimal("10"),
+                        is_suspended_full_day=True,
+                    )
+        return tuple(rows)
 
 
 def test_engine_executes_only_next_day_and_reuses_actual_sell_cash() -> None:
@@ -107,3 +164,50 @@ def test_engine_executes_only_next_day_and_reuses_actual_sell_cash() -> None:
     assert result.portfolio_daily[0].valuation_date == date(2026, 9, 4)
     assert result.portfolio_daily[-1].nav == Decimal("9982.31")
     assert all(trade.execution_date > result.targets[0].decision_date for trade in result.trades)
+    first_rebalance = result.portfolio_daily[1]
+    assert Decimal("0.49") < first_rebalance.two_way_adjustment_turnover < Decimal("0.51")
+    assert first_rebalance.two_way_adjustment_turnover != first_rebalance.one_way_turnover / 2
+    assert result.portfolio_daily[0].benchmark_nav == Decimal("1")
+    assert result.portfolio_daily[1].benchmark_nav == Decimal("1.01")
+    assert result.portfolio_daily[1].benchmark_daily_return == Decimal("0.01")
+
+
+def test_engine_applies_corporate_actions_in_account_timeline() -> None:
+    result = BacktestEngine().run(
+        data=_CorporateActionData(),
+        strategy=_Strategy(),
+        parameters={},
+        custom=None,
+        start_date=date(2026, 9, 4),
+        end_date=date(2026, 9, 11),
+        initial_cash=Decimal("10000"),
+        execution_assumptions={
+            "slippage_bps": Decimal("0"),
+            "max_volume_participation": Decimal("0.10"),
+            "dividend_tax_model": "PROVIDER_AFTER_TAX",
+        },
+    )
+    assert result.portfolio_daily[2].cash_receivable == Decimal("50.00")
+    assert result.portfolio_daily[3].cash_available == Decimal("5044.95")
+    assert result.portfolio_daily[2].stock_market_value == Decimal("4950.00")
+    assert result.portfolio_daily[2].stock_return_contribution == Decimal("0")
+
+
+def test_suspended_holding_uses_last_reliable_close_only_for_valuation() -> None:
+    result = BacktestEngine().run(
+        data=_SuspendedData(),
+        strategy=_Strategy(),
+        parameters={},
+        custom=None,
+        start_date=date(2026, 9, 4),
+        end_date=date(2026, 9, 9),
+        initial_cash=Decimal("10000"),
+        execution_assumptions={
+            "slippage_bps": Decimal("0"),
+            "max_volume_participation": Decimal("0.10"),
+        },
+    )
+    suspended = next(
+        item for item in result.portfolio_daily if item.valuation_date == date(2026, 9, 8)
+    )
+    assert suspended.stock_market_value == Decimal("5000")

@@ -83,6 +83,8 @@ def backtest_markdown(metrics: Mapping[str, object], trade_count: int) -> str:
             f"- 初始净值: {metrics['initial_nav']}",
             f"- 最终净值: {metrics['final_nav']}",
             f"- 累计收益: {metrics['cumulative_return']}",
+            f"- 沪深300基准累计收益: {metrics['benchmark_cumulative_return']}",
+            f"- 相对基准收益差: {metrics['excess_return']}",
             f"- 最大回撤: {metrics['max_drawdown']}",
             f"- 成交记录数: {trade_count}",
             "",

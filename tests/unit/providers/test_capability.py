@@ -51,3 +51,9 @@ def test_capability_uses_minimal_registered_request() -> None:
             {"ts_code": "510300.SH", "start_date": "20260904", "end_date": "20260904"},
         )
     ]
+
+
+def test_dividend_probe_uses_only_an_officially_supported_selector() -> None:
+    client = _Client(SimpleNamespace(fields=("ts_code",), records=(), attempts=1))
+    CapabilityProbe(client).run(("dividend",), trade_date="20260904")
+    assert client.calls[0][2] == {"ts_code": "600000.SH"}

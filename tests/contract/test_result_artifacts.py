@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import json
 from dataclasses import replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -108,4 +110,14 @@ def test_daily_advice_and_backtest_publish_complete_contracts(tmp_path: Path) ->
         "period_metrics.csv",
         "issues.json",
         "report.md",
+    }
+    metrics = json.loads((backtest.path / "metrics.json").read_text(encoding="utf-8"))
+    assert metrics["benchmark_cumulative_return"] == 0.07
+    assert metrics["excess_return"] is not None
+    assert metrics["rolling_20_min_return"] is None
+    with (backtest.path / "period_metrics.csv").open(encoding="utf-8", newline="") as stream:
+        periods = list(csv.DictReader(stream))
+    assert {(row["period_type"], row["period_label"]) for row in periods} == {
+        ("FULL", "ALL"),
+        ("CALENDAR_YEAR", "2026"),
     }

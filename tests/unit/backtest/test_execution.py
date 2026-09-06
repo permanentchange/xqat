@@ -42,6 +42,7 @@ def test_slippage_tick_and_volume_capacity_produce_partial_fill() -> None:
     )
     assert result.record is not None
     assert result.record.execution_price == Decimal("10.01")
+    assert result.record.reference_price == Decimal("10")
     assert result.record.filled_quantity == 500
     assert result.record.status is FillStatus.PARTIALLY_FILLED
     assert result.unfilled_reason is UnfilledReason.VOLUME_CAP

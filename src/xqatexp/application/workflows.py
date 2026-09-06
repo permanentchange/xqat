@@ -129,9 +129,7 @@ class StrategyWorkflowService:
         ).path
 
     @staticmethod
-    def _custom(
-        context: ResolvedRunContext, decision_date: date
-    ) -> CsvCustomFactorView | None:
+    def _custom(context: ResolvedRunContext, decision_date: date) -> CsvCustomFactorView | None:
         required = strategy_declaration(context.parameters).required_custom_factors
         if not required:
             return None

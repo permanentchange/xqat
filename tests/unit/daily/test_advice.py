@@ -111,3 +111,25 @@ def test_conflicting_complete_account_value_is_explicitly_limited() -> None:
     advice = _run(account)
     assert "ACCOUNT_VALUE_CONFLICT" in advice.limitations
     assert {issue.code for issue in advice.issues} >= {"ADVICE_ACCOUNT_VALUE_CONFLICT"}
+
+
+def test_field_level_degradation_also_emits_machine_readable_issues() -> None:
+    account = replace(
+        _account(),
+        positions=(
+            AccountPosition(
+                "600001.SH", 100, None, Decimal("1000"), Decimal("10"), target().decision_date
+            ),
+        ),
+    )
+    advice = DailyAdviceService().run(
+        target=target(),
+        account=account,
+        reference_prices={"600001.SH": Decimal("10")},
+        lot_rules={"600001.SH": LotRule(100, 100)},
+        run_started_at=datetime.fromisoformat("2026-09-04T19:00:00+08:00"),
+    )
+    assert {issue.code for issue in advice.issues} >= {
+        "ADVICE_REFERENCE_PRICE_MISSING",
+        "ADVICE_SELLABLE_UNKNOWN",
+    }

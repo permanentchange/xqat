@@ -150,7 +150,33 @@ class DailyAdviceService:
             self._item(draft, buy_suggestions.get(draft.security_id), target) for draft in drafts
         ]
         items.sort(key=lambda item: (_ACTION_ORDER[item.action], item.security_id))
+        for item in items:
+            if "REFERENCE_PRICE_UNKNOWN" in item.limitations:
+                issues.append(
+                    Issue(
+                        "ADVICE_REFERENCE_PRICE_MISSING",
+                        Severity.WARNING,
+                        "DAILY_ADVICE",
+                        "SECURITY",
+                        "缺少证券参考价格; 无法计算精确数量。",
+                        security_id=item.security_id,
+                        field="reference_price",
+                    )
+                )
+            if "SELLABLE_QUANTITY_UNKNOWN" in item.limitations:
+                issues.append(
+                    Issue(
+                        "ADVICE_SELLABLE_UNKNOWN",
+                        Severity.WARNING,
+                        "DAILY_ADVICE",
+                        "SECURITY",
+                        "可卖数量未知; 不生成卖出数量建议。",
+                        security_id=item.security_id,
+                        field="sellable_quantity",
+                    )
+                )
         global_limitations = tuple(sorted({value for item in items for value in item.limitations}))
+        issues.sort(key=lambda item: (item.code, item.security_id or "", item.field or ""))
         return TradeAdvice(
             target.decision_date,
             target.effective_from,

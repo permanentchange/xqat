@@ -24,6 +24,7 @@ from xqatexp.providers.tushare.capability import CapabilityProbe
 from xqatexp.providers.tushare.client import TushareClient, TushareError
 from xqatexp.providers.tushare.raw import FetchRequest, RawCheckService, RawFetchService
 from xqatexp.providers.tushare.registry import dataset_ids
+from xqatexp.reporting.failure import FailureDiagnosticPublisher
 from xqatexp.reporting.readers import load_target
 from xqatexp.research.custom_factors import CustomFactorCheckService
 from xqatexp.research.tables import ResearchBuildConfig, ResearchBuilder, ResearchCheckService
@@ -45,6 +46,7 @@ def _build_parser() -> argparse.ArgumentParser:
     fetch.add_argument("--dataset", required=True, choices=dataset_ids())
     fetch.add_argument("--start", required=True, type=date.fromisoformat)
     fetch.add_argument("--end", required=True, type=date.fromisoformat)
+    fetch.add_argument("--security-id", action="append", default=[])
     fetch.add_argument("--output", required=True, type=Path)
     fetch.add_argument("--existing", choices=("error", "skip", "overwrite"), default="error")
     capabilities = data_commands.add_parser("capabilities")
@@ -96,6 +98,7 @@ def _build_parser() -> argparse.ArgumentParser:
     daily_advice.add_argument("--account", type=Path)
     daily_advice.add_argument("--output", required=True, type=Path)
     daily_advice.add_argument("--existing", choices=("error", "skip", "overwrite"), default="error")
+    daily_advice.add_argument("--failure-report", type=Path)
 
     result = commands.add_parser("result", help="Inspect a published result artifact.")
     show = result.add_subparsers(dest="result_command", metavar="COMMAND").add_parser("show")
@@ -114,6 +117,7 @@ def _add_run_arguments(parser: argparse.ArgumentParser, *, dates: str) -> None:
         parser.add_argument("--decision-date", required=True, type=date.fromisoformat)
     parser.add_argument("--custom-factor", action="append", type=Path, default=[])
     parser.add_argument("--existing", choices=("error", "skip", "overwrite"), default="error")
+    parser.add_argument("--failure-report", type=Path)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -169,6 +173,7 @@ def _run_factor(args: argparse.Namespace) -> int:
 
 def _run_strategy(args: argparse.Namespace) -> int:
     now = datetime.now(UTC)
+    run_id = str(uuid.uuid4())
     try:
         if args.command == "backtest":
             cli_values = {
@@ -177,9 +182,7 @@ def _run_strategy(args: argparse.Namespace) -> int:
                 "start_date": args.start_date,
                 "end_date": args.end_date,
             }
-            context = resolve_config(
-                cli_values, args.config, run_id=str(uuid.uuid4()), generated_at=now
-            )
+            context = resolve_config(cli_values, args.config, run_id=run_id, generated_at=now)
             if args.custom_factor:
                 context = replace(
                     context,
@@ -194,9 +197,7 @@ def _run_strategy(args: argparse.Namespace) -> int:
                 "output": args.output,
                 "decision_date": args.decision_date,
             }
-            context = resolve_config(
-                cli_values, args.config, run_id=str(uuid.uuid4()), generated_at=now
-            )
+            context = resolve_config(cli_values, args.config, run_id=run_id, generated_at=now)
             custom = _custom_inputs(args.custom_factor)
             context = replace(
                 context,
@@ -213,9 +214,7 @@ def _run_strategy(args: argparse.Namespace) -> int:
                 "output": args.output,
                 "decision_date": target.decision_date,
             }
-            context = resolve_config(
-                cli_values, args.config, run_id=str(uuid.uuid4()), generated_at=now
-            )
+            context = resolve_config(cli_values, args.config, run_id=run_id, generated_at=now)
             output = StrategyWorkflowService().daily_advice(
                 context,
                 args.target,
@@ -226,9 +225,11 @@ def _run_strategy(args: argparse.Namespace) -> int:
         print(f"RESULT_WRITTEN output={output}")
         return 0
     except ArtifactPublishError as error:
+        _publish_failure_if_requested(args, run_id, now, error)
         print(str(error), file=sys.stderr)
         return 4
     except (OSError, ValueError, KeyError) as error:
+        _publish_failure_if_requested(args, run_id, now, error)
         print(str(error), file=sys.stderr)
         return (
             3
@@ -241,6 +242,42 @@ def _run_strategy(args: argparse.Namespace) -> int:
             }
             else 2
         )
+
+
+def _publish_failure_if_requested(
+    args: argparse.Namespace, run_id: str, generated_at: datetime, error: Exception
+) -> None:
+    output = getattr(args, "failure_report", None)
+    if output is None:
+        return
+    mode = (
+        "BACKTEST"
+        if args.command == "backtest"
+        else "DAILY_TARGET"
+        if args.daily_command == "target"
+        else "DAILY_ADVICE"
+    )
+    references = []
+    for alias, name in (
+        ("config", "config"),
+        ("target", "target"),
+        ("account", "account"),
+    ):
+        path = getattr(args, name, None)
+        if isinstance(path, Path):
+            references.append({"alias": alias, "path_hint": path.name})
+    try:
+        FailureDiagnosticPublisher().publish(
+            output=output,
+            run_id=run_id,
+            mode=mode,
+            failed_stage=str(error).split(":", 1)[0],
+            error=error,
+            input_references=references,
+            generated_at=generated_at,
+        )
+    except (OSError, ValueError, ArtifactPublishError) as publish_error:
+        print(f"FAILURE_DIAGNOSTIC_NOT_WRITTEN: {publish_error}", file=sys.stderr)
 
 
 def _custom_inputs(paths: Sequence[Path]) -> tuple[CustomFactorInput, ...]:
@@ -301,7 +338,7 @@ def _run_data(args: argparse.Namespace) -> int:
                 dataset_id=args.dataset,
                 start_date=args.start,
                 end_date=args.end,
-                security_ids=(),
+                security_ids=tuple(args.security_id),
                 fields=(),
                 output_path=args.output,
                 existing_policy=OverwritePolicy(args.existing.upper()),

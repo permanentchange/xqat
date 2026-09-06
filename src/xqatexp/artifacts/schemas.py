@@ -247,6 +247,10 @@ _ARROW_SCHEMAS = {
             pa.field("valuation_date", pa.date32(), nullable=False),
             pa.field("nav", D20_4, nullable=False),
             pa.field("daily_return", D18_12),
+            pa.field("benchmark_close", D18_6),
+            pa.field("benchmark_nav", D18_12),
+            pa.field("benchmark_daily_return", D18_12),
+            pa.field("cash_opportunity_cost_vs_benchmark", D18_12),
             pa.field("running_peak", D20_4, nullable=False),
             pa.field("drawdown", D18_12, nullable=False),
             pa.field("cash_available", D20_4, nullable=False),
@@ -398,8 +402,6 @@ class SchemaRegistry:
         if len(keys) != len(set(keys)):
             raise SchemaValidationError(f"DATA_CONFLICT: {schema_id} duplicate primary key")
         sort_names = _SORT_KEYS.get(schema_id, key_names)
-        sort_keys = list(
-            zip(*(table.column(name).to_pylist() for name in sort_names), strict=True)
-        )
+        sort_keys = list(zip(*(table.column(name).to_pylist() for name in sort_names), strict=True))
         if sort_keys != sorted(sort_keys):
             raise SchemaValidationError(f"DATA_CONFLICT: {schema_id} rows are not sorted")

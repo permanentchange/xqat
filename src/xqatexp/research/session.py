@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date
 from pathlib import Path
 from typing import Any, cast
@@ -8,7 +8,7 @@ from typing import Any, cast
 import duckdb
 
 from xqatexp.artifacts.readers import ArtifactReader
-from xqatexp.domain.contracts import SecuritySnapshot, StrategyDeclaration
+from xqatexp.domain.contracts import CustomFactorView, SecuritySnapshot, StrategyDeclaration
 from xqatexp.domain.enums import AssetType
 from xqatexp.research.tables import TABLE_NAMES, ResearchCheckService
 
@@ -20,6 +20,11 @@ class ResearchAccessError(ValueError):
 def _rows(cursor: duckdb.DuckDBPyConnection) -> list[dict[str, Any]]:
     names = [item[0] for item in cursor.description]
     return [dict(zip(names, values, strict=True)) for values in cursor.fetchall()]
+
+
+def _count(cursor: duckdb.DuckDBPyConnection) -> int:
+    row = cursor.fetchone()
+    return 0 if row is None else int(row[0])
 
 
 class ResearchSession:
@@ -99,17 +104,61 @@ class ResearchSession:
                 self._connection.execute(
                     "SELECT m.security_id,m.asset_type,m.price_tick,m.buy_lot_size,"
                     "m.sell_lot_size,d.open_raw,d.high_raw,d.low_raw,d.close_raw,"
-                    "d.volume_shares,s.is_listed,s.is_suspended_full_day,s.up_limit,"
+                    "COALESCE(d.volume_shares,0) AS volume_shares,"
+                    "v.close_raw AS valuation_close,s.is_listed,s.is_suspended_full_day,s.up_limit,"
                     "s.down_limit,s.is_limit_up_locked,s.is_limit_down_locked "
-                    "FROM security_master m JOIN market_daily d USING(security_id) "
+                    "FROM security_master m LEFT JOIN market_daily d ON "
+                    "d.security_id=m.security_id AND d.trade_date=? AND d.available_from<=? "
                     "LEFT JOIN security_status_daily s ON s.security_id=m.security_id "
-                    "AND s.trade_date=d.trade_date AND s.available_from<=? "
-                    f"WHERE m.security_id IN ({marks}) AND d.trade_date=? "
-                    "AND d.available_from<=? ORDER BY m.security_id",
-                    [execution_date, *security_ids, execution_date, execution_date],
+                    "AND s.trade_date=? AND s.available_from<=? "
+                    "LEFT JOIN LATERAL (SELECT close_raw FROM market_daily p "
+                    "WHERE p.security_id=m.security_id AND p.trade_date<=? "
+                    "AND p.available_from<=? AND p.close_raw IS NOT NULL "
+                    "ORDER BY p.trade_date DESC LIMIT 1) v ON true "
+                    f"WHERE m.security_id IN ({marks}) ORDER BY m.security_id",
+                    [
+                        execution_date,
+                        execution_date,
+                        execution_date,
+                        execution_date,
+                        execution_date,
+                        execution_date,
+                        *security_ids,
+                    ],
                 )
             )
         )
+
+    def corporate_actions(self, start: date, end: date) -> tuple[dict[str, Any], ...]:
+        """Return execution-only events whose account dates intersect the range."""
+        if self.closed or start > end:
+            raise ResearchAccessError("DATA_INPUT_CORRUPT: invalid corporate action range")
+        return tuple(
+            _rows(
+                self._connection.execute(
+                    "SELECT event_id,security_id,action_type,record_date,ex_date,pay_date,"
+                    "stock_list_date,cash_per_share_before_tax,cash_per_share_after_tax,"
+                    "stock_ratio,split_ratio,rights_ratio,rights_price "
+                    "FROM corporate_action WHERE "
+                    "(record_date BETWEEN ? AND ?) OR (ex_date BETWEEN ? AND ?) OR "
+                    "(pay_date BETWEEN ? AND ?) OR (stock_list_date BETWEEN ? AND ?) "
+                    "ORDER BY COALESCE(record_date,ex_date,pay_date,stock_list_date),event_id",
+                    [start, end, start, end, start, end, start, end],
+                )
+            )
+        )
+
+    def benchmark_close(self, on_date: date) -> Any:
+        if self.closed:
+            raise ResearchAccessError("DATA_INPUT_CORRUPT: session is closed")
+        row = self._connection.execute(
+            "SELECT close_raw FROM market_daily WHERE security_id='000300.SH' "
+            "AND trade_date=? AND available_from<=?",
+            [on_date, on_date],
+        ).fetchone()
+        if row is None or row[0] is None:
+            raise ResearchAccessError(f"BACKTEST_VALUATION_MISSING: benchmark on {on_date}")
+        return row[0]
 
 
 class ResearchDataViewImpl:
@@ -151,6 +200,105 @@ class ResearchDataViewImpl:
         if row is None:
             raise ResearchAccessError("DATA_REQUIRED_MISSING: next trading day")
         return cast(date, row[0])
+
+    def readiness_coverage(self, custom_factors: CustomFactorView | None) -> dict[str, float]:
+        days = self.trading_days(self.earliest_date, self.decision_date)[-252:]
+        latest_by_week: dict[tuple[int, int], date] = {}
+        for day in days:
+            iso = day.isocalendar()
+            latest_by_week[(iso.year, iso.week)] = day
+        decision_days = tuple(sorted(latest_by_week.values()))
+        stock_factors = tuple(
+            item
+            for item in self._declaration.required_system_factors
+            if not item.startswith("etf_")
+        )
+        etf_factors = tuple(
+            item for item in self._declaration.required_system_factors if item.startswith("etf_")
+        )
+        samples: dict[str, list[float]] = {
+            "market_status": [],
+            "financial": [],
+            "system_factors": [],
+            "etf_factors": [],
+            "custom_factors": [],
+        }
+        for decision_day in decision_days:
+            active = tuple(
+                str(row[0])
+                for row in self._connection.execute(
+                    "SELECT security_id FROM security_master WHERE asset_type='A_SHARE' "
+                    "AND list_date<=? AND (delist_date IS NULL OR delist_date>=?) "
+                    "ORDER BY security_id",
+                    [decision_day, decision_day],
+                ).fetchall()
+            )
+            denominator = len(active)
+            if not active:
+                for key in ("market_status", "financial", "system_factors"):
+                    samples[key].append(0.0)
+            else:
+                marks = ",".join("?" for _ in active)
+                market_status = _count(
+                    self._connection.execute(
+                        "SELECT COUNT(*) FROM security_status_daily s WHERE "
+                        f"s.security_id IN ({marks}) AND s.trade_date=? "
+                        "AND s.available_from<=? AND s.is_st IS NOT NULL "
+                        "AND s.is_suspended_full_day IS NOT NULL AND "
+                        "(s.is_suspended_full_day OR EXISTS (SELECT 1 FROM market_daily d "
+                        "WHERE d.security_id=s.security_id AND d.trade_date=s.trade_date "
+                        "AND d.available_from<=?))",
+                        [*active, decision_day, decision_day, decision_day],
+                    )
+                )
+                financial = _count(
+                    self._connection.execute(
+                        "SELECT COUNT(*) FROM security_master m WHERE "
+                        f"m.security_id IN ({marks}) AND EXISTS "
+                        "(SELECT 1 FROM financial_snapshot f "
+                        "WHERE f.security_id=m.security_id AND f.available_from<=?)",
+                        [*active, decision_day],
+                    )
+                )
+                samples["market_status"].append(float(market_status) / denominator)
+                samples["financial"].append(float(financial) / denominator)
+                if stock_factors:
+                    factor_marks = ",".join("?" for _ in stock_factors)
+                    observed = _count(
+                        self._connection.execute(
+                            "SELECT COUNT(*) FROM system_factor_daily WHERE "
+                            f"factor_id IN ({factor_marks}) AND security_id IN ({marks}) "
+                            "AND factor_date=? AND available_from<=?",
+                            [*stock_factors, *active, decision_day, decision_day],
+                        )
+                    )
+                    samples["system_factors"].append(
+                        float(observed) / (denominator * len(stock_factors))
+                    )
+                if self._declaration.required_custom_factors and custom_factors is not None:
+                    loaded = cast(
+                        Mapping[str, Mapping[str, float]],
+                        custom_factors.values_at(
+                            decision_day,
+                            self._declaration.required_custom_factors,
+                            active,
+                        ),
+                    )
+                    observed = sum(len(loaded.get(name, {})) for name in loaded)
+                    samples["custom_factors"].append(
+                        observed / (denominator * len(self._declaration.required_custom_factors))
+                    )
+            if etf_factors:
+                factor_marks = ",".join("?" for _ in etf_factors)
+                observed = _count(
+                    self._connection.execute(
+                        "SELECT COUNT(DISTINCT factor_id) FROM system_factor_daily WHERE "
+                        f"factor_id IN ({factor_marks}) AND factor_date=? AND available_from<=?",
+                        [*etf_factors, decision_day, decision_day],
+                    )
+                )
+                samples["etf_factors"].append(float(observed) / len(etf_factors))
+        return {key: min(values) if values else 1.0 for key, values in samples.items()}
 
     def _bounded(self, start: date, end: date) -> None:
         if start < self.earliest_date or end > self.decision_date or start > end:

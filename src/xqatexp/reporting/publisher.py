@@ -19,6 +19,7 @@ from xqatexp.artifacts.schemas import SchemaRegistry
 from xqatexp.backtest.engine import BacktestResult
 from xqatexp.domain.contracts import (
     AccountSnapshot,
+    ExecutionRecord,
     ResolvedRunContext,
     TargetPortfolio,
     TradeAdvice,
@@ -148,7 +149,7 @@ class ResultArtifactPublisher:
             payloads: dict[str, bytes] = {
                 "resolved_config.json": canonical_json_bytes(config),
                 "metrics.json": canonical_json_bytes(metrics),
-                "period_metrics.csv": self._period_metrics_csv(metrics),
+                "period_metrics.csv": self._period_metrics_csv(metrics, result),
                 "issues.json": canonical_json_bytes(issue_data),
                 "report.md": backtest_markdown(metrics, len(result.trades)).encode("utf-8"),
             }
@@ -225,6 +226,12 @@ class ResultArtifactPublisher:
                 "valuation_date": item.valuation_date,
                 "nav": self._q4(item.nav),
                 "daily_return": self._optional_q12(item.daily_return),
+                "benchmark_close": (None if item.benchmark_close is None else item.benchmark_close),
+                "benchmark_nav": self._optional_q12(item.benchmark_nav),
+                "benchmark_daily_return": self._optional_q12(item.benchmark_daily_return),
+                "cash_opportunity_cost_vs_benchmark": self._optional_q12(
+                    item.cash_opportunity_cost_vs_benchmark
+                ),
                 "running_peak": self._q4(item.running_peak),
                 "drawdown": self._q12(item.drawdown),
                 "cash_available": self._q4(item.cash_available),
@@ -249,6 +256,12 @@ class ResultArtifactPublisher:
             execution_id = self._stable_id(
                 instruction_id, record.execution_date, record.filled_quantity
             )
+            reference_price = record.reference_price or record.execution_price
+            slippage_cost = Decimal(record.filled_quantity) * (
+                record.execution_price - reference_price
+                if record.side.value == "BUY"
+                else reference_price - record.execution_price
+            )
             trades.append(
                 {
                     "execution_id": execution_id,
@@ -261,13 +274,13 @@ class ResultArtifactPublisher:
                     "requested_quantity": record.requested_quantity,
                     "filled_quantity": record.filled_quantity,
                     "execution_price": record.execution_price,
-                    "reference_price": record.execution_price,
+                    "reference_price": reference_price,
                     "gross_amount": self._q4(record.gross_amount),
                     "commission": self._q4(record.fees.commission),
                     "transfer_fee": self._q4(record.fees.transfer_fee),
                     "stamp_duty": self._q4(record.fees.stamp_duty),
                     "total_fees": self._q4(record.fees.total),
-                    "slippage_cost": self._q4(Decimal("0")),
+                    "slippage_cost": self._q4(slippage_cost),
                     "status": record.status.value,
                 }
             )
@@ -318,6 +331,18 @@ class ResultArtifactPublisher:
     def _metrics(self, result: BacktestResult) -> dict[str, object]:
         points = tuple((item.valuation_date, item.nav) for item in result.portfolio_daily)
         performance = PerformanceAnalyzer().analyze(points, risk_free_rate=Decimal("0"))
+        benchmark_values = tuple(
+            item.benchmark_nav for item in result.portfolio_daily if item.benchmark_nav is not None
+        )
+        benchmark_complete = len(benchmark_values) == len(result.portfolio_daily)
+        benchmark_return = benchmark_values[-1] - 1 if benchmark_complete else None
+        limitations = set(performance.limitations) | set(result.limitations)
+        if not benchmark_complete:
+            limitations.add("BENCHMARK_UNAVAILABLE")
+        rolling = {window: self._rolling_minimum(points, window) for window in (20, 60, 120)}
+        for window, item in rolling.items():
+            if item is None:
+                limitations.add(f"ROLLING_{window}_INSUFFICIENT")
         return {
             "schema_version": "1.0",
             "formula_version": "1.0.0",
@@ -328,6 +353,22 @@ class ResultArtifactPublisher:
             "initial_nav": points[0][1],
             "final_nav": points[-1][1],
             "cumulative_return": performance.cumulative_return,
+            "benchmark_cumulative_return": benchmark_return,
+            "excess_return": (
+                None
+                if benchmark_return is None
+                else performance.cumulative_return - float(benchmark_return)
+            ),
+            "cash_opportunity_cost_vs_benchmark": sum(
+                (
+                    item.cash_opportunity_cost_vs_benchmark
+                    for item in result.portfolio_daily
+                    if item.cash_opportunity_cost_vs_benchmark is not None
+                ),
+                Decimal("0"),
+            )
+            if benchmark_complete
+            else None,
             "annualized_return": performance.annualized_return,
             "annualized_volatility": performance.annualized_volatility,
             "max_drawdown": performance.max_drawdown,
@@ -352,7 +393,18 @@ class ResultArtifactPublisher:
                 (item.fees.transfer_fee for item in result.trades), Decimal("0")
             ),
             "total_stamp_duty": sum((item.fees.stamp_duty for item in result.trades), Decimal("0")),
-            "total_slippage_cost": Decimal("0"),
+            "total_slippage_cost": sum(
+                (
+                    Decimal(item.filled_quantity)
+                    * (
+                        item.execution_price - (item.reference_price or item.execution_price)
+                        if item.side.value == "BUY"
+                        else (item.reference_price or item.execution_price) - item.execution_price
+                    )
+                    for item in result.trades
+                ),
+                Decimal("0"),
+            ),
             "stock_return_contribution": sum(
                 (
                     item.stock_return_contribution
@@ -377,11 +429,37 @@ class ResultArtifactPublisher:
                 ),
                 Decimal("0"),
             ),
-            "limitations": list(performance.limitations),
+            **{
+                f"rolling_{window}_min_return": None if value is None else value[0]
+                for window, value in rolling.items()
+            },
+            **{
+                f"rolling_{window}_start_date": (None if value is None else value[1].isoformat())
+                for window, value in rolling.items()
+            },
+            **{
+                f"rolling_{window}_end_date": None if value is None else value[2].isoformat()
+                for window, value in rolling.items()
+            },
+            "limitations": sorted(limitations),
         }
 
     @staticmethod
-    def _period_metrics_csv(metrics: dict[str, object]) -> bytes:
+    def _rolling_minimum(
+        points: Sequence[tuple[date, Decimal]], window: int
+    ) -> tuple[Decimal, date, date] | None:
+        if len(points) <= window:
+            return None
+        best: tuple[Decimal, date, date] | None = None
+        for index in range(window, len(points)):
+            value = points[index][1] / points[index - window][1] - 1
+            candidate = (value, points[index - window][0], points[index][0])
+            if best is None or value < best[0]:
+                best = candidate
+        return best
+
+    @classmethod
+    def _period_metrics_csv(cls, metrics: dict[str, object], result: BacktestResult) -> bytes:
         columns = (
             "period_type",
             "period_label",
@@ -405,7 +483,7 @@ class ResultArtifactPublisher:
         writer.writeheader()
         limitations = metrics["limitations"]
         assert isinstance(limitations, list)
-        writer.writerow(
+        rows: list[dict[str, object]] = [
             {
                 "period_type": "FULL",
                 "period_label": "ALL",
@@ -426,8 +504,67 @@ class ResultArtifactPublisher:
                 "total_slippage_cost": metrics["total_slippage_cost"],
                 "limitations": ";".join(value for value in limitations if isinstance(value, str)),
             }
+        ]
+        years = sorted({item.valuation_date.year for item in result.portfolio_daily})
+        for year in years:
+            records = tuple(
+                item for item in result.portfolio_daily if item.valuation_date.year == year
+            )
+            points = tuple((item.valuation_date, item.nav) for item in records)
+            performance = (
+                PerformanceAnalyzer().analyze(points, risk_free_rate=Decimal("0"))
+                if len(points) >= 2
+                else None
+            )
+            trades = tuple(item for item in result.trades if item.execution_date.year == year)
+            period_slippage = sum((cls._slippage_cost(item) for item in trades), Decimal("0"))
+            rows.append(
+                {
+                    "period_type": "CALENDAR_YEAR",
+                    "period_label": str(year),
+                    "start_date": points[0][0],
+                    "end_date": points[-1][0],
+                    "valuation_points": len(points),
+                    "return_intervals": max(0, len(points) - 1),
+                    "cumulative_return": (
+                        None if performance is None else performance.cumulative_return
+                    ),
+                    "annualized_return": (
+                        None if performance is None else performance.annualized_return
+                    ),
+                    "annualized_volatility": (
+                        None if performance is None else performance.annualized_volatility
+                    ),
+                    "max_drawdown": None if performance is None else performance.max_drawdown,
+                    "sharpe": None if performance is None else performance.sharpe,
+                    "calmar": None if performance is None else performance.calmar,
+                    "one_way_turnover": sum(
+                        (item.one_way_turnover for item in records), Decimal("0")
+                    ),
+                    "total_fees": sum((item.fees.total for item in trades), Decimal("0")),
+                    "total_slippage_cost": period_slippage,
+                    "limitations": (
+                        "PERFORMANCE_INSUFFICIENT_SAMPLE"
+                        if performance is None
+                        else ";".join(performance.limitations)
+                    ),
+                }
+            )
+        rows.sort(
+            key=lambda row: (
+                str(row["start_date"]),
+                str(row["period_type"]),
+                str(row["period_label"]),
+            )
         )
+        writer.writerows(rows)
         return stream.getvalue().encode("utf-8")
+
+    @staticmethod
+    def _slippage_cost(record: ExecutionRecord) -> Decimal:
+        reference = record.reference_price or record.execution_price
+        direction = Decimal("1") if record.side.value == "BUY" else Decimal("-1")
+        return Decimal(record.filled_quantity) * direction * (record.execution_price - reference)
 
     @staticmethod
     def _decision_date(result: BacktestResult, execution_date: date) -> date:

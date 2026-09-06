@@ -234,6 +234,7 @@ class ExecutionRecord:
     fees: ExecutionFees
     status: FillStatus
     unfilled_reason: UnfilledReason | None = None
+    reference_price: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)

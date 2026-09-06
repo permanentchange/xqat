@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import Any, Protocol
 
 from xqatexp.backtest.account import SimulatedAccount
+from xqatexp.backtest.corporate_actions import CorporateActionProcessor, DividendAction
 from xqatexp.backtest.execution import ExecutionFacts, ExecutionOutcome, ExecutionSimulator
 from xqatexp.backtest.fees import FeeModel
 from xqatexp.domain.contracts import (
@@ -31,6 +32,8 @@ class EngineData(Protocol):
     def execution_rows(
         self, execution_date: date, security_ids: Sequence[str]
     ) -> Sequence[Mapping[str, Any]]: ...
+
+    def corporate_actions(self, start: date, end: date) -> Sequence[Mapping[str, Any]]: ...
 
 
 class EngineStrategy(Protocol):
@@ -59,6 +62,10 @@ class PortfolioDailyRecord:
     valuation_date: date
     nav: Decimal
     daily_return: Decimal | None
+    benchmark_close: Decimal | None
+    benchmark_nav: Decimal | None
+    benchmark_daily_return: Decimal | None
+    cash_opportunity_cost_vs_benchmark: Decimal | None
     running_peak: Decimal
     drawdown: Decimal
     cash_available: Decimal
@@ -79,6 +86,7 @@ class BacktestResult:
     trades: tuple[ExecutionRecord, ...]
     unfilled: tuple[UnfilledRecord, ...]
     portfolio_daily: tuple[PortfolioDailyRecord, ...]
+    limitations: tuple[str, ...] = ()
 
 
 class BacktestEngine:
@@ -106,6 +114,8 @@ class BacktestEngine:
         slippage = Decimal(str(execution_assumptions["slippage_bps"]))
         participation = Decimal(str(execution_assumptions["max_volume_participation"]))
         account = SimulatedAccount(initial_cash)
+        action_processor = CorporateActionProcessor()
+        actions = self._load_corporate_actions(data, start_date, end_date, execution_assumptions)
         pending: dict[date, TargetPortfolio] = {}
         targets: list[TargetPortfolio] = []
         trades: list[ExecutionRecord] = []
@@ -117,13 +127,29 @@ class BacktestEngine:
         previous_etf = Decimal("0")
         previous_cash = initial_cash
         running_peak = initial_cash
+        benchmark_base: Decimal | None = None
+        previous_benchmark: Decimal | None = None
 
         for current_day in days:
             account.release_sellable(current_day)
+            declared_dividends = Decimal("0")
+            for action in actions:
+                if action.ex_date == current_day and action.event_id in account.entitlements:
+                    declared_dividends += action_processor.apply_ex_date(account, action)
+            for action in actions:
+                if action.pay_date == current_day and action.event_id in account.entitlements:
+                    action_processor.apply_pay_date(account, action)
+                if (
+                    action.stock_list_date == current_day
+                    and action.event_id in account.entitlements
+                ):
+                    action_processor.apply_stock_list_date(account, action)
             day_trades: list[tuple[ExecutionRecord, AssetType]] = []
+            two_way = Decimal("0")
+            turnover_base: Decimal | None = None
             due = pending.pop(current_day, None)
             if due is not None:
-                day_trades = self._rebalance(
+                day_trades, two_way, turnover_base = self._rebalance(
                     data,
                     account,
                     due,
@@ -139,8 +165,25 @@ class BacktestEngine:
             if nav <= 0:
                 raise ValueError("BACKTEST_ACCOUNT_CONSERVATION_BROKEN: nonpositive NAV")
             turnover_notional = sum((record.gross_amount for record, _ in day_trades), Decimal("0"))
-            turnover_base = previous_nav if previous_nav is not None else nav
-            one_way = turnover_notional / turnover_base
+            one_way = turnover_notional / (turnover_base if turnover_base is not None else nav)
+            benchmark_close = self._benchmark_close(data, current_day)
+            if benchmark_close is not None and benchmark_base is None:
+                benchmark_base = benchmark_close
+            benchmark_nav = (
+                benchmark_close / benchmark_base
+                if benchmark_close is not None and benchmark_base is not None
+                else None
+            )
+            benchmark_return = (
+                benchmark_close / previous_benchmark - 1
+                if benchmark_close is not None and previous_benchmark is not None
+                else None
+            )
+            cash_opportunity_cost = (
+                previous_cash / previous_nav * benchmark_return
+                if previous_nav is not None and benchmark_return is not None
+                else None
+            )
             if previous_nav is None:
                 daily_return = None
                 stock_contribution = None
@@ -156,7 +199,7 @@ class BacktestEngine:
                     stock_end=stock_value,
                     stock_buys=flows[(AssetType.A_SHARE, OrderSide.BUY)],
                     stock_sells=flows[(AssetType.A_SHARE, OrderSide.SELL)],
-                    stock_dividends=Decimal("0"),
+                    stock_dividends=declared_dividends,
                     etf_begin=previous_etf,
                     etf_end=etf_value,
                     etf_buys=flows[(AssetType.CSI300_ETF, OrderSide.BUY)],
@@ -173,6 +216,10 @@ class BacktestEngine:
                     current_day,
                     nav,
                     daily_return,
+                    benchmark_close,
+                    benchmark_nav,
+                    benchmark_return,
+                    cash_opportunity_cost,
                     running_peak,
                     nav / running_peak - 1,
                     account.cash_available,
@@ -184,7 +231,7 @@ class BacktestEngine:
                     (cash_contribution if previous_nav is not None else None),
                     (stock_value + etf_value) / nav,
                     one_way,
-                    one_way / 2,
+                    two_way,
                 )
             )
             account.ledger.append(("VALUATION_RECORDED", (current_day, nav)))
@@ -193,6 +240,11 @@ class BacktestEngine:
             previous_stock = stock_value
             previous_etf = etf_value
             previous_cash = account.cash_available + account.cash_receivable
+            previous_benchmark = benchmark_close
+
+            for action in actions:
+                if action.record_date == current_day:
+                    action_processor.record_entitlement(account, action)
 
             if self._is_weekly_close(data, current_day):
                 generated = strategy.generate_target(data.view(current_day), custom, parameters)
@@ -204,7 +256,84 @@ class BacktestEngine:
                 pending[annotated.effective_from] = annotated
                 targets.append(annotated)
                 previous_target = annotated
-        return BacktestResult(tuple(targets), tuple(trades), tuple(unfilled), tuple(daily))
+        limitations = (
+            ("DIVIDEND_TAX_NOT_PERSONALIZED",)
+            if actions
+            and str(execution_assumptions.get("dividend_tax_model", "PROVIDER_AFTER_TAX"))
+            == "PROVIDER_AFTER_TAX"
+            else ()
+        )
+        return BacktestResult(
+            tuple(targets), tuple(trades), tuple(unfilled), tuple(daily), limitations
+        )
+
+    @staticmethod
+    def _benchmark_close(data: EngineData, on_date: date) -> Decimal | None:
+        loader = getattr(data, "benchmark_close", None)
+        if not callable(loader):
+            return None
+        value = Decimal(str(loader(on_date)))
+        if value <= 0:
+            raise ValueError("BACKTEST_VALUATION_MISSING: benchmark close")
+        return value
+
+    @staticmethod
+    def _load_corporate_actions(
+        data: EngineData,
+        start_date: date,
+        end_date: date,
+        assumptions: Mapping[str, object],
+    ) -> tuple[DividendAction, ...]:
+        loader = getattr(data, "corporate_actions", None)
+        if not callable(loader):
+            return ()
+        model = str(assumptions.get("dividend_tax_model", "PROVIDER_AFTER_TAX"))
+        if model not in {"PROVIDER_AFTER_TAX", "FLAT_RATE"}:
+            raise ValueError("CONFIG_VALUE_INVALID: invalid dividend_tax_model")
+        rate = Decimal(str(assumptions.get("dividend_tax_rate", "0")))
+        if not Decimal("0") <= rate <= Decimal("1"):
+            raise ValueError("CONFIG_VALUE_INVALID: dividend_tax_rate must be in [0,1]")
+        output: list[DividendAction] = []
+        for row in loader(start_date, end_date):
+            record_date = row.get("record_date")
+            ex_date = row.get("ex_date")
+            if not isinstance(record_date, date) or not isinstance(ex_date, date):
+                raise ValueError("BACKTEST_CORPORATE_ACTION_UNSUPPORTED: missing event dates")
+            action_type = str(row["action_type"])
+            cash_source = (
+                row.get("cash_per_share_after_tax")
+                if model == "PROVIDER_AFTER_TAX"
+                else row.get("cash_per_share_before_tax")
+            )
+            if cash_source is None:
+                cash = Decimal("0")
+            else:
+                cash = Decimal(str(cash_source))
+                if model == "FLAT_RATE":
+                    cash *= Decimal("1") - rate
+            pay_date = row.get("pay_date")
+            stock_list_date = row.get("stock_list_date")
+            if cash and not isinstance(pay_date, date):
+                raise ValueError("BACKTEST_CORPORATE_ACTION_UNSUPPORTED: missing pay_date")
+            stock_ratio = Decimal(str(row.get("stock_ratio") or "0"))
+            split_ratio = Decimal(str(row.get("split_ratio") or "0"))
+            if stock_ratio and not isinstance(stock_list_date, date):
+                raise ValueError("BACKTEST_CORPORATE_ACTION_UNSUPPORTED: missing stock_list_date")
+            output.append(
+                DividendAction(
+                    str(row["event_id"]),
+                    str(row["security_id"]),
+                    record_date,
+                    ex_date,
+                    pay_date if isinstance(pay_date, date) else ex_date,
+                    stock_list_date if isinstance(stock_list_date, date) else ex_date,
+                    cash,
+                    stock_ratio,
+                    action_type,
+                    split_ratio,
+                )
+            )
+        return tuple(output)
 
     def _rebalance(
         self,
@@ -215,12 +344,12 @@ class BacktestEngine:
         slippage: Decimal,
         participation: Decimal,
         unfilled: list[UnfilledRecord],
-    ) -> list[tuple[ExecutionRecord, AssetType]]:
+    ) -> tuple[list[tuple[ExecutionRecord, AssetType]], Decimal, Decimal]:
         security_ids = sorted(
             set(account.positions) | {position.security_id for position in target.positions}
         )
         rows = self._rows_by_security(data, execution_date, security_ids)
-        prices = {security_id: self._decimal(row, "open_raw") for security_id, row in rows.items()}
+        prices = {security_id: self._reference_price(row) for security_id, row in rows.items()}
         rules = {
             security_id: LotRule(int(row["buy_lot_size"]), int(row["sell_lot_size"]))
             for security_id, row in rows.items()
@@ -245,6 +374,8 @@ class BacktestEngine:
                 Decimal("0"),
             )
         )
+        before_positions = dict(account.positions)
+        before_cash = account.cash_available + account.cash_receivable
         sell_plan = planner.plan(
             target,
             current_positions=account.positions,
@@ -294,7 +425,42 @@ class BacktestEngine:
                     executed,
                     unfilled,
                 )
-        return executed
+        two_way = self._adjustment_turnover(
+            before_positions,
+            before_cash,
+            account.positions,
+            account.cash_available + account.cash_receivable,
+            prices,
+        )
+        return executed, two_way, open_value
+
+    @staticmethod
+    def _adjustment_turnover(
+        before_positions: Mapping[str, int],
+        before_cash: Decimal,
+        after_positions: Mapping[str, int],
+        after_cash: Decimal,
+        prices: Mapping[str, Decimal],
+    ) -> Decimal:
+        security_ids = set(before_positions) | set(after_positions)
+        before_values = {
+            security_id: Decimal(before_positions.get(security_id, 0)) * prices[security_id]
+            for security_id in security_ids
+        }
+        after_values = {
+            security_id: Decimal(after_positions.get(security_id, 0)) * prices[security_id]
+            for security_id in security_ids
+        }
+        before_total = before_cash + sum(before_values.values(), Decimal("0"))
+        after_total = after_cash + sum(after_values.values(), Decimal("0"))
+        if before_total <= 0 or after_total <= 0:
+            raise ValueError("BACKTEST_ACCOUNT_CONSERVATION_BROKEN: invalid turnover base")
+        distance = abs(after_cash / after_total - before_cash / before_total)
+        for security_id in security_ids:
+            distance += abs(
+                after_values[security_id] / after_total - before_values[security_id] / before_total
+            )
+        return distance / 2
 
     def _execute(
         self,
@@ -310,13 +476,33 @@ class BacktestEngine:
         executed: list[tuple[ExecutionRecord, AssetType]],
         unfilled: list[UnfilledRecord],
     ) -> None:
+        suspended = bool(row.get("is_suspended_full_day"))
+        if row.get("open_raw") is None and not suspended:
+            unfilled.append(
+                UnfilledRecord(
+                    target.decision_date,
+                    execution_date,
+                    instruction.security_id,
+                    instruction.side,
+                    instruction.requested_quantity,
+                    0,
+                    instruction.requested_quantity,
+                    UnfilledReason.NO_EXECUTION_PRICE,
+                )
+            )
+            return
+        boundary_fallback = "valuation_close" if suspended else "high_raw"
         facts = ExecutionFacts(
             asset_type,
-            self._decimal(row, "open_raw"),
-            self._decimal(row, "high_raw"),
-            self._decimal(row, "low_raw"),
-            self._decimal(row, "up_limit", fallback="high_raw"),
-            self._decimal(row, "down_limit", fallback="low_raw"),
+            self._decimal(row, "open_raw", fallback="valuation_close"),
+            self._decimal(row, "high_raw", fallback="valuation_close"),
+            self._decimal(row, "low_raw", fallback="valuation_close"),
+            self._decimal(row, "up_limit", fallback=boundary_fallback),
+            self._decimal(
+                row,
+                "down_limit",
+                fallback="valuation_close" if suspended else "low_raw",
+            ),
             int(row["volume_shares"]),
             self._decimal(row, "price_tick"),
             bool(row.get("is_suspended_full_day")),
@@ -376,12 +562,19 @@ class BacktestEngine:
         etf = Decimal("0")
         for security_id in active:
             row = rows[security_id]
-            value = Decimal(account.positions[security_id]) * self._decimal(row, "close_raw")
+            if row.get("close_raw") is None and not bool(row.get("is_suspended_full_day")):
+                raise ValueError(f"BACKTEST_VALUATION_MISSING: {security_id} on {on_date}")
+            close = self._decimal(row, "close_raw", fallback="valuation_close")
+            value = Decimal(account.positions[security_id]) * close
             if AssetType(str(row["asset_type"])) is AssetType.A_SHARE:
                 stock += value
             else:
                 etf += value
         return stock, etf
+
+    @classmethod
+    def _reference_price(cls, row: Mapping[str, Any]) -> Decimal:
+        return cls._decimal(row, "open_raw", fallback="valuation_close")
 
     @staticmethod
     def _flows(

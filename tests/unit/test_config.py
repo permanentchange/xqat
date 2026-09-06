@@ -14,7 +14,12 @@ def _config():
         pytest.fail("xqatexp.config is not implemented", pytrace=False)
 
 
-def _write_config(tmp_path: Path, extra_strategy: str = "") -> tuple[Path, Path]:
+def _write_config(
+    tmp_path: Path,
+    extra_strategy: str = "",
+    extra_execution: str = "",
+    dividend_tax_model: str = "PROVIDER_AFTER_TAX",
+) -> tuple[Path, Path]:
     research = tmp_path / "research"
     research.mkdir()
     (research / "manifest.json").write_text("{}\n", encoding="utf-8")
@@ -40,7 +45,8 @@ csi300_etf_id = "510300.SH"
 price_model = "NEXT_OPEN"
 slippage_bps = 10
 fee_schedule_id = "cn_cash_market_default_v1"
-dividend_tax_model = "PROVIDER_AFTER_TAX"
+dividend_tax_model = "{dividend_tax_model}"
+{extra_execution}
 ''',
         encoding="utf-8",
     )
@@ -100,6 +106,31 @@ def test_config_rejects_secret_named_fields(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     with pytest.raises(Exception, match="CONFIG_SCHEMA_INVALID"):
+        _config().resolve_config(
+            {},
+            config_path,
+            run_id="01991a6a-4c00-7000-8000-000000000002",
+            generated_at=datetime(2026, 9, 6, tzinfo=UTC),
+        )
+
+
+@pytest.mark.parametrize(
+    ("model", "extra_execution"),
+    (
+        ("UNSUPPORTED", ""),
+        ("FLAT_RATE", "dividend_tax_rate = 1.01"),
+        ("PROVIDER_AFTER_TAX", "dividend_tax_rate = 0.10"),
+    ),
+)
+def test_dividend_tax_configuration_is_unambiguous(
+    tmp_path: Path, model: str, extra_execution: str
+) -> None:
+    config_path, _ = _write_config(
+        tmp_path,
+        extra_execution=extra_execution,
+        dividend_tax_model=model,
+    )
+    with pytest.raises(Exception, match="dividend_tax"):
         _config().resolve_config(
             {},
             config_path,

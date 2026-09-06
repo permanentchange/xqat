@@ -516,7 +516,9 @@ class ResearchBuilder:
         rows["market_daily"].sort(key=lambda item: (item["security_id"], item["trade_date"]))
         self._status_rows(rows, raw, masters, definite_open_dates)
         rows["financial_snapshot"] = self._financial_rows(raw, definite_open_dates)
-        rows["corporate_action"] = self._corporate_action_rows(raw)
+        rows["corporate_action"] = self._corporate_action_rows(
+            raw, config.start_date, config.end_date
+        )
         rows["system_factor_daily"] = self._factor_rows(
             rows["market_daily"],
             rows["security_status_daily"],
@@ -546,39 +548,83 @@ class ResearchBuilder:
             for item in raw.get("stock_st_status", [])
         }
         st_covered = "stock_st_status" in raw
-        for market in rows["market_daily"]:
-            security_id, trade_date = market["security_id"], market["trade_date"]
-            master = masters.get(security_id)
-            if master is None or master["asset_type"] != "A_SHARE":
+        suspension_covered = "stock_suspend" in raw
+        suspensions: dict[tuple[str, date], list[Row]] = defaultdict(list)
+        for item in raw.get("stock_suspend", []):
+            suspensions[(str(item["ts_code"]), _required_date(item["trade_date"]))].append(item)
+        market_by_key = {
+            (str(item["security_id"]), item["trade_date"]): item
+            for item in rows["market_daily"]
+            if masters.get(str(item["security_id"]), {}).get("asset_type") == "A_SHARE"
+        }
+        relevant_dates = sorted(
+            {
+                *(item[1] for item in market_by_key),
+                *(item[1] for item in suspensions),
+                *(item[1] for item in st),
+                *(item[1] for item in limits),
+            }
+            & set(open_dates)
+        )
+        for security_id, master in sorted(masters.items()):
+            if master["asset_type"] != "A_SHARE":
                 continue
-            limit = limits.get((security_id, trade_date), {})
-            up = _decimal(limit.get("up_limit"), "0.000001")
-            down = _decimal(limit.get("down_limit"), "0.000001")
-            tolerance = Decimal("0.005")
-            rows["security_status_daily"].append(
-                {
-                    "security_id": security_id,
-                    "trade_date": trade_date,
-                    "is_listed": master["list_date"] <= trade_date
-                    and (master["delist_date"] is None or trade_date <= master["delist_date"]),
-                    "listing_trade_days": sum(
-                        1 for item in open_dates if master["list_date"] <= item <= trade_date
-                    ),
-                    "is_st": ((security_id, trade_date) in st) if st_covered else None,
-                    "is_suspended_full_day": False,
-                    "up_limit": up,
-                    "down_limit": down,
-                    "is_limit_up_locked": (
-                        market["low_raw"] >= up - tolerance if up is not None else None
-                    ),
-                    "is_limit_down_locked": (
-                        market["high_raw"] <= down + tolerance if down is not None else None
-                    ),
-                    "risk_flags": [] if st_covered else ["ST_COVERAGE_MISSING"],
-                    "available_from": trade_date,
-                    "source_hash": _source_hash((limit, market)),
-                }
-            )
+            for trade_date in relevant_dates:
+                if trade_date < master["list_date"] or (
+                    master["delist_date"] is not None and trade_date > master["delist_date"]
+                ):
+                    continue
+                market = market_by_key.get((security_id, trade_date), {})
+                suspension_records = suspensions.get((security_id, trade_date), [])
+                full_day = any(
+                    not str(item.get("suspend_timing") or "").strip() for item in suspension_records
+                )
+                intraday = any(
+                    str(item.get("suspend_timing") or "").strip() for item in suspension_records
+                )
+                risk_flags = []
+                if not st_covered:
+                    risk_flags.append("ST_COVERAGE_MISSING")
+                if not suspension_covered:
+                    risk_flags.append("SUSPENSION_COVERAGE_MISSING")
+                if intraday and not full_day:
+                    risk_flags.append("INTRADAY_SUSPENSION_UNSUPPORTED")
+                if not market and not full_day:
+                    risk_flags.append("MARKET_BAR_MISSING")
+                limit = limits.get((security_id, trade_date), {})
+                up = _decimal(limit.get("up_limit"), "0.000001")
+                down = _decimal(limit.get("down_limit"), "0.000001")
+                tolerance = Decimal("0.005")
+                rows["security_status_daily"].append(
+                    {
+                        "security_id": security_id,
+                        "trade_date": trade_date,
+                        "is_listed": master["list_date"] <= trade_date
+                        and (master["delist_date"] is None or trade_date <= master["delist_date"]),
+                        "listing_trade_days": sum(
+                            1 for item in open_dates if master["list_date"] <= item <= trade_date
+                        ),
+                        "is_st": ((security_id, trade_date) in st) if st_covered else None,
+                        "is_suspended_full_day": (full_day if suspension_covered else None),
+                        "up_limit": up,
+                        "down_limit": down,
+                        "is_limit_up_locked": (
+                            market.get("low_raw") is not None
+                            and market["low_raw"] >= up - tolerance
+                            if up is not None
+                            else None
+                        ),
+                        "is_limit_down_locked": (
+                            market.get("high_raw") is not None
+                            and market["high_raw"] <= down + tolerance
+                            if down is not None
+                            else None
+                        ),
+                        "risk_flags": sorted(risk_flags),
+                        "available_from": trade_date,
+                        "source_hash": _source_hash((limit, market, *suspension_records)),
+                    }
+                )
         rows["security_status_daily"].sort(
             key=lambda item: (item["security_id"], item["trade_date"])
         )
@@ -738,40 +784,66 @@ class ResearchBuilder:
         )
         return output
 
-    def _corporate_action_rows(self, raw: RawMap) -> list[Row]:
+    def _corporate_action_rows(self, raw: RawMap, start_date: date, end_date: date) -> list[Row]:
         output = []
         for record in raw.get("dividend", []):
             fact = _facts(record)
-            cash = _decimal(fact.get("cash_div"), "0.000001")
-            after_tax = _decimal(fact.get("cash_div_tax"), "0.000001")
-            stock_values = [
-                Decimal(str(fact.get(name) or 0))
-                for name in ("stk_div", "stk_bo_rate", "stk_co_rate")
-            ]
-            stock_ratio = sum(stock_values, Decimal("0"))
-            action_type = (
-                "CASH_DIVIDEND" if cash is not None and cash > 0 and stock_ratio == 0 else "OTHER"
+            if str(fact.get("div_proc", "")).strip() != "实施":
+                continue
+            after_tax = _decimal(fact.get("cash_div"), "0.000001")
+            before_tax = _decimal(fact.get("cash_div_tax"), "0.000001")
+            reported_total = Decimal(str(fact.get("stk_div") or 0))
+            component_total = sum(
+                (Decimal(str(fact.get(name) or 0)) for name in ("stk_bo_rate", "stk_co_rate")),
+                Decimal("0"),
             )
+            if (
+                reported_total
+                and component_total
+                and abs(reported_total - component_total) > Decimal("1e-12")
+            ):
+                raise ValueError("DATA_CONFLICT: inconsistent dividend stock ratios")
+            stock_ratio = reported_total if reported_total else component_total
+            has_cash = after_tax is not None and after_tax > 0
+            action_type = "STOCK_DISTRIBUTION" if stock_ratio > 0 else "CASH_DIVIDEND"
             announce_date = _required_date(fact["ann_date"])
+            record_date = _date(fact.get("record_date"))
+            ex_date = _date(fact.get("ex_date"))
+            pay_date = _date(fact.get("pay_date"))
+            stock_list_date = _date(fact.get("div_listdate"))
+            if record_date is None or ex_date is None:
+                raise ValueError("DATA_REQUIRED_MISSING: corporate action dates")
+            if has_cash and pay_date is None:
+                raise ValueError("DATA_REQUIRED_MISSING: cash dividend pay_date")
+            if stock_ratio > 0 and stock_list_date is None:
+                raise ValueError("DATA_REQUIRED_MISSING: stock distribution list date")
+            event_dates = tuple(
+                item
+                for item in (record_date, ex_date, pay_date, stock_list_date)
+                if item is not None
+            )
+            if not any(start_date <= item <= end_date for item in event_dates):
+                continue
             event_id = hashlib.sha256(canonical_json_bytes(fact)).hexdigest()
+            implementation_date = _date(fact.get("imp_ann_date"))
             output.append(
                 {
                     "event_id": event_id,
                     "security_id": str(fact["ts_code"]),
                     "action_type": action_type,
                     "announce_date": announce_date,
-                    "implementation_announce_date": _date(fact.get("imp_ann_date")),
-                    "record_date": _date(fact.get("record_date")),
-                    "ex_date": _date(fact.get("ex_date")),
-                    "pay_date": _date(fact.get("pay_date")),
-                    "stock_list_date": _date(fact.get("div_listdate")),
-                    "cash_per_share_before_tax": cash,
+                    "implementation_announce_date": implementation_date,
+                    "record_date": record_date,
+                    "ex_date": ex_date,
+                    "pay_date": pay_date,
+                    "stock_list_date": stock_list_date,
+                    "cash_per_share_before_tax": before_tax,
                     "cash_per_share_after_tax": after_tax,
                     "stock_ratio": _decimal(stock_ratio, "0.000000000001"),
                     "split_ratio": None,
                     "rights_ratio": None,
                     "rights_price": None,
-                    "available_from": announce_date,
+                    "available_from": implementation_date or announce_date,
                     "source_hash": _source_hash((record,)),
                 }
             )

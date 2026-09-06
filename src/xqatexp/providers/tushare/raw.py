@@ -9,7 +9,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
 from xqatexp import __version__
 from xqatexp.artifacts.manifest import canonical_json_bytes
@@ -53,23 +53,46 @@ class RawFetchService:
         self._clock = clock
 
     def fetch(self, request: FetchRequest) -> PublishedArtifact:
-        if request.start_date != request.end_date:
-            raise ValueError("CONFIG_VALUE_INVALID: MVP fetch request must be one explicit slice")
+        if request.start_date > request.end_date:
+            raise ValueError("CONFIG_VALUE_INVALID: fetch start_date exceeds end_date")
         spec = get_dataset(request.dataset_id)
         fields = request.fields or spec.fields
         if not set(spec.fields).issubset(fields):
             raise ValueError("CONFIG_VALUE_INVALID: requested fields omit registered fields")
         params: dict[str, object] = dict(spec.fixed_params)
-        if spec.dataset_id in {
+        daily_datasets = {
             "stock_daily",
             "stock_adj_factor",
             "stock_daily_basic",
             "stock_suspend",
             "stock_price_limit",
             "stock_st_status",
-        }:
+        }
+        if spec.dataset_id in daily_datasets and request.start_date == request.end_date:
             params["trade_date"] = request.start_date.strftime("%Y%m%d")
-        result = self._client.query(spec.api_name, fields, params)
+        elif spec.dataset_id in daily_datasets | {
+            "trade_calendar",
+            "fund_daily",
+            "fund_adj_factor",
+            "index_daily",
+            "income",
+            "fina_indicator",
+        }:
+            params["start_date"] = request.start_date.strftime("%Y%m%d")
+            params["end_date"] = request.end_date.strftime("%Y%m%d")
+        if request.security_ids:
+            if len(request.security_ids) != 1:
+                raise ValueError(
+                    "CONFIG_VALUE_INVALID: one security_id per Raw artifact is required"
+                )
+            params["ts_code"] = request.security_ids[0]
+        if (
+            spec.dataset_id
+            in {"fund_daily", "fund_adj_factor", "income", "fina_indicator", "dividend"}
+            and "ts_code" not in params
+        ):
+            raise ValueError(f"CONFIG_VALUE_INVALID: {spec.dataset_id} requires --security-id")
+        result, recorded_params = self._query(spec.dataset_id, spec.api_name, fields, params)
         if not result.records and not spec.empty_allowed:
             raise ValueError(f"DATA_PROVIDER_EMPTY_RESPONSE: {request.dataset_id}")
         now = self._clock()
@@ -83,7 +106,7 @@ class RawFetchService:
                 "provider": "tushare",
                 "api_name": spec.api_name,
                 "requested_fields": list(fields),
-                "parameters": params,
+                "parameters": recorded_params,
                 "page_number": 1,
                 "offset": 0,
                 "limit": max(1, len(result.records)),
@@ -94,7 +117,9 @@ class RawFetchService:
             }
             self._schemas.validate_json("raw_request", request_value)
             request_bytes = canonical_json_bytes(request_value)
-            response_bytes = self._response_bytes(result.records, request_id)
+            response_bytes = self._response_bytes(
+                result.records, request_id, getattr(result, "page_numbers", ())
+            )
             (staging / "request.json").write_bytes(request_bytes)
             (staging / "response.jsonl.gz").write_bytes(response_bytes)
             files = [
@@ -129,8 +154,57 @@ class RawFetchService:
 
         return self._publisher.publish(build, request.output_path, request.existing_policy)
 
+    def _query(
+        self,
+        dataset_id: str,
+        api_name: str,
+        fields: Sequence[str],
+        params: dict[str, object],
+    ) -> tuple[QueryResult, dict[str, object]]:
+        query_all = getattr(self._client, "query_all", None)
+        if not callable(query_all):
+            return self._client.query(api_name, fields, params), params
+        slices: tuple[dict[str, object], ...]
+        if dataset_id == "stock_basic":
+            slices = tuple(
+                {"exchange": exchange, "list_status": status}
+                for exchange in ("SSE", "SZSE")
+                for status in ("L", "D", "P", "G")
+            )
+        elif dataset_id == "fund_basic":
+            slices = tuple({**params, "status": status} for status in ("L", "D"))
+        else:
+            result = cast(QueryResult, query_all(api_name, fields, params, page_size=5000))
+            return result, params
+        records: list[dict[str, object]] = []
+        page_numbers: list[int] = []
+        attempts = 0
+        returned_fields: tuple[str, ...] | None = None
+        page_offset = 0
+        for item in slices:
+            result = cast(QueryResult, query_all(api_name, fields, item, page_size=5000))
+            if returned_fields is None:
+                returned_fields = result.fields
+            elif result.fields != returned_fields:
+                raise ValueError("DATA_PROVIDER_SCHEMA_MISMATCH: fields changed between slices")
+            records.extend(result.records)
+            local_pages = result.page_numbers or tuple(1 for _ in result.records)
+            page_numbers.extend(page_offset + page for page in local_pages)
+            page_offset += max(local_pages, default=1)
+            attempts += result.attempts
+        return (
+            QueryResult(
+                returned_fields or tuple(fields), tuple(records), attempts, tuple(page_numbers)
+            ),
+            {"slices": list(slices)},
+        )
+
     @staticmethod
-    def _response_bytes(records: tuple[dict[str, object], ...], request_id: str) -> bytes:
+    def _response_bytes(
+        records: tuple[dict[str, object], ...],
+        request_id: str,
+        page_numbers: tuple[int, ...] = (),
+    ) -> bytes:
         raw = io.BytesIO()
         with gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as compressed:
             for row_number, original in enumerate(records, start=1):
@@ -139,7 +213,7 @@ class RawFetchService:
                 if reserved.intersection(record):
                     raise ValueError("DATA_PROVIDER_SCHEMA_MISMATCH: reserved Raw field collision")
                 record["_xqat_request_id"] = request_id
-                record["_xqat_page_number"] = 1
+                record["_xqat_page_number"] = page_numbers[row_number - 1] if page_numbers else 1
                 record["_xqat_row_number"] = row_number
                 line = json.dumps(
                     record,

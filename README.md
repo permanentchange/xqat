@@ -49,6 +49,12 @@ $env:TUSHARE_TOKEN = "<在本机填写你的 Token>"
 .\.venv\Scripts\xqatexp.exe data capabilities --output .local\tushare-capabilities.json
 ```
 
+最小真实接口测试需要显式开关，且只发起一次日线请求：
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -m live_tushare --live-tushare -q
+```
+
 能力探测会逐项报告当前积分可调用的接口。正式抓取每次只处理一个显式数据集和日期范围，例如：
 
 ```powershell
@@ -63,6 +69,7 @@ $env:TUSHARE_TOKEN = "<在本机填写你的 Token>"
 - Backtest Result 包含目标历史、每日净值、成交、未成交、指标、阶段指标和 Markdown 报告。
 - Daily Target 保存策略目标；Daily Advice 另外保存账户事实约束下的建议 JSON/CSV。
 - `result show --format json|markdown|summary` 只读取已发布事实，不重新计算。
+- `backtest run`、`daily target` 和 `daily advise` 可显式添加 `--failure-report 路径`；失败时只发布独立诊断 Artifact，不伪造成功结果。
 - 目标在决策日收盘后形成，只能从下一交易日起执行；回测按先卖后买和 T+1 可卖规则推进。
 - Tushare、日线成交模型、费用默认值以及分红税模型都是研究假设，不代表真实成交或券商结算。
 

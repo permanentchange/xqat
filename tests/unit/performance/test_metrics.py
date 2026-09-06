@@ -35,3 +35,4 @@ def test_one_interval_has_return_but_no_volatility_or_sharpe() -> None:
     assert result.cumulative_return == pytest.approx(0.01)
     assert result.annualized_volatility is None
     assert result.sharpe is None
+    assert result.limitations == ("SHORT_PERFORMANCE_SAMPLE",)

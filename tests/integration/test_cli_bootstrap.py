@@ -5,6 +5,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+from xqatexp.artifacts.readers import ArtifactReader
+from xqatexp.cli import main
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -75,3 +78,24 @@ def test_capabilities_without_token_fails_without_creating_output(tmp_path: Path
     assert completed.returncode == 3
     assert "SECURITY_SECRET_MISSING" in completed.stderr
     assert not output.exists()
+
+
+def test_explicit_failure_report_is_a_valid_standalone_artifact(tmp_path: Path) -> None:
+    report = tmp_path / "failure"
+    result = main(
+        [
+            "backtest",
+            "run",
+            "--config",
+            str(tmp_path / "missing.toml"),
+            "--output",
+            str(tmp_path / "success-must-not-exist"),
+            "--failure-report",
+            str(report),
+        ]
+    )
+    assert result == 2
+    opened = ArtifactReader().open(report)
+    assert opened.manifest["artifact_type"] == "FAILURE_DIAGNOSTIC"
+    assert set(opened.verified_files) == {"failure.json", "report.md"}
+    assert not (tmp_path / "success-must-not-exist").exists()

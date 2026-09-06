@@ -38,7 +38,11 @@ def _raw(
             dataset_id=dataset_id,
             start_date=slice_date,
             end_date=slice_date,
-            security_ids=(),
+            security_ids=(
+                (str(records[0]["ts_code"]),)
+                if dataset_id in {"income", "fina_indicator", "dividend"}
+                else ()
+            ),
             fields=(),
             output_path=output,
             existing_policy=OverwritePolicy.ERROR,
@@ -213,7 +217,8 @@ def test_research_build_normalizes_units_prices_and_all_table_schemas(tmp_path: 
     assert financial[0]["roe_annualized"] == Decimal("0.125000000000")
     actions = pq.read_table(output / "tables/corporate_action.parquet").to_pylist()
     assert actions[0]["action_type"] == "CASH_DIVIDEND"
-    assert actions[0]["cash_per_share_after_tax"] == Decimal("0.080000")
+    assert actions[0]["cash_per_share_before_tax"] == Decimal("0.080000")
+    assert actions[0]["cash_per_share_after_tax"] == Decimal("0.100000")
     factors = pq.read_table(output / "tables/system_factor_daily.parquet").to_pylist()
     factor_ids = {row["factor_id"] for row in factors}
     assert {
@@ -261,3 +266,125 @@ def test_research_check_reports_tampered_table(tmp_path: Path) -> None:
     report = ResearchCheckService().check(output)
     assert report.valid is False
     assert report.issue_codes == ("ARTIFACT_HASH_MISMATCH",)
+
+
+def test_full_day_suspension_has_status_even_without_daily_bar(tmp_path: Path) -> None:
+    raw_root = tmp_path / "raw-suspended"
+    first = date(2026, 9, 3)
+    raw_inputs = (
+        _raw(
+            raw_root,
+            "stock_basic",
+            (
+                {
+                    "ts_code": "600000.SH",
+                    "symbol": "600000",
+                    "name": "Example",
+                    "market": "主板",
+                    "exchange": "SSE",
+                    "curr_type": "CNY",
+                    "list_status": "L",
+                    "list_date": "20200101",
+                    "delist_date": None,
+                },
+            ),
+            slice_date=first,
+        ),
+        _raw(
+            raw_root,
+            "trade_calendar",
+            (
+                {
+                    "exchange": "SSE",
+                    "cal_date": "20260903",
+                    "is_open": 1,
+                    "pretrade_date": "20260902",
+                },
+                {
+                    "exchange": "SSE",
+                    "cal_date": "20260904",
+                    "is_open": 1,
+                    "pretrade_date": "20260903",
+                },
+            ),
+            slice_date=first,
+        ),
+        _raw(
+            raw_root,
+            "stock_daily",
+            (
+                {
+                    "ts_code": "600000.SH",
+                    "trade_date": "20260903",
+                    "open": 10,
+                    "high": 10.2,
+                    "low": 9.8,
+                    "close": 10,
+                    "pre_close": 10,
+                    "change": 0,
+                    "pct_chg": 0,
+                    "vol": 100,
+                    "amount": 100,
+                },
+            ),
+            slice_date=first,
+        ),
+        _raw(
+            raw_root,
+            "stock_adj_factor",
+            ({"ts_code": "600000.SH", "trade_date": "20260903", "adj_factor": 1},),
+            slice_date=first,
+        ),
+        _raw(
+            raw_root,
+            "stock_daily_basic",
+            (
+                {
+                    "ts_code": "600000.SH",
+                    "trade_date": "20260903",
+                    "close": 10,
+                    "turnover_rate": 1,
+                    "total_mv": 100,
+                    "circ_mv": 80,
+                },
+            ),
+            slice_date=first,
+        ),
+        _raw(
+            raw_root,
+            "stock_price_limit",
+            (
+                {
+                    "ts_code": "600000.SH",
+                    "trade_date": "20260903",
+                    "pre_close": 10,
+                    "up_limit": 11,
+                    "down_limit": 9,
+                },
+            ),
+            slice_date=first,
+        ),
+        _raw(raw_root, "stock_st_status", (), slice_date=first),
+        _raw(
+            raw_root,
+            "stock_suspend",
+            (
+                {
+                    "ts_code": "600000.SH",
+                    "trade_date": "20260904",
+                    "suspend_timing": None,
+                    "suspend_type": "S",
+                },
+            ),
+            slice_date=date(2026, 9, 4),
+        ),
+    )
+    output = tmp_path / "research-suspended"
+    ResearchBuilder().build(
+        raw_inputs,
+        ResearchBuildConfig(first, date(2026, 9, 4), "510300.SH", OverwritePolicy.ERROR),
+        output,
+    )
+    statuses = pq.read_table(output / "tables/security_status_daily.parquet").to_pylist()
+    suspended = next(row for row in statuses if row["trade_date"] == date(2026, 9, 4))
+    assert suspended["is_suspended_full_day"] is True

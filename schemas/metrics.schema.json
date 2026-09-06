@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "formula_version", "date_start", "date_end", "valuation_points", "return_intervals", "initial_nav", "final_nav", "cumulative_return", "annualized_return", "annualized_volatility", "max_drawdown", "max_drawdown_peak_date", "max_drawdown_trough_date", "max_drawdown_recovery_date", "sharpe", "calmar", "one_way_turnover", "two_way_adjustment_turnover", "total_commission", "total_transfer_fee", "total_stamp_duty", "total_slippage_cost", "stock_return_contribution", "etf_return_contribution", "cash_cost_contribution", "limitations"],
+  "required": ["schema_version", "formula_version", "date_start", "date_end", "valuation_points", "return_intervals", "initial_nav", "final_nav", "cumulative_return", "benchmark_cumulative_return", "excess_return", "cash_opportunity_cost_vs_benchmark", "annualized_return", "annualized_volatility", "max_drawdown", "max_drawdown_peak_date", "max_drawdown_trough_date", "max_drawdown_recovery_date", "sharpe", "calmar", "one_way_turnover", "two_way_adjustment_turnover", "total_commission", "total_transfer_fee", "total_stamp_duty", "total_slippage_cost", "stock_return_contribution", "etf_return_contribution", "cash_cost_contribution", "rolling_20_min_return", "rolling_20_start_date", "rolling_20_end_date", "rolling_60_min_return", "rolling_60_start_date", "rolling_60_end_date", "rolling_120_min_return", "rolling_120_start_date", "rolling_120_end_date", "limitations"],
   "properties": {
     "schema_version": { "const": "1.0" },
     "formula_version": { "type": "string", "minLength": 1 },
@@ -13,6 +13,9 @@
     "initial_nav": { "type": "number", "exclusiveMinimum": 0 },
     "final_nav": { "type": "number", "minimum": 0 },
     "cumulative_return": { "type": ["number", "null"] },
+    "benchmark_cumulative_return": { "type": ["number", "null"] },
+    "excess_return": { "type": ["number", "null"] },
+    "cash_opportunity_cost_vs_benchmark": { "type": ["number", "null"] },
     "annualized_return": { "type": ["number", "null"] },
     "annualized_volatility": { "type": ["number", "null"], "minimum": 0 },
     "max_drawdown": { "type": ["number", "null"], "maximum": 0 },
@@ -30,6 +33,15 @@
     "stock_return_contribution": { "type": ["number", "null"] },
     "etf_return_contribution": { "type": ["number", "null"] },
     "cash_cost_contribution": { "type": ["number", "null"] },
+    "rolling_20_min_return": { "type": ["number", "null"] },
+    "rolling_20_start_date": { "type": ["string", "null"], "format": "date" },
+    "rolling_20_end_date": { "type": ["string", "null"], "format": "date" },
+    "rolling_60_min_return": { "type": ["number", "null"] },
+    "rolling_60_start_date": { "type": ["string", "null"], "format": "date" },
+    "rolling_60_end_date": { "type": ["string", "null"], "format": "date" },
+    "rolling_120_min_return": { "type": ["number", "null"] },
+    "rolling_120_start_date": { "type": ["string", "null"], "format": "date" },
+    "rolling_120_end_date": { "type": ["string", "null"], "format": "date" },
     "limitations": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
   }
 }

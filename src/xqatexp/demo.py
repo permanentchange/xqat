@@ -141,12 +141,28 @@ def create_offline_research(
             row["factor_version"],
         )
     )
+    financial = [
+        {
+            "security_id": security_id,
+            "report_period": date(2024, 12, 31),
+            "announce_date": date(2025, 3, 31),
+            "available_from": date(2025, 4, 1),
+            "revision_seq": 1,
+            "net_profit_parent_ytd": Decimal("100000000.0000"),
+            "net_profit_parent_quarter": Decimal("25000000.0000"),
+            "net_profit_parent_ttm": Decimal("100000000.0000"),
+            "roe_annualized": Decimal("0.120000000000"),
+            "consecutive_loss_quarters": 0,
+            "source_hash": "0" * 64,
+        }
+        for security_id in stocks
+    ]
     rows = {
         "security_master": master,
         "trade_calendar": calendar,
         "market_daily": market,
         "security_status_daily": status,
-        "financial_snapshot": [],
+        "financial_snapshot": financial,
         "system_factor_daily": factors,
         "corporate_action": [],
     }

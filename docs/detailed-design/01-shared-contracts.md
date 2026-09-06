@@ -150,7 +150,7 @@ class CustomFactorView(Protocol):
 
 `RebalanceInstruction`：`security_id`、`side`、`current_quantity`、`theoretical_target_quantity`、`requested_quantity`、`lot_size`、`priority`、`reference_price`、`reason_codes`。
 
-`ExecutionRecord`：`execution_date`、`security_id`、`side`、`requested_quantity`、`filled_quantity`、`execution_price`、`gross_amount`、`fees`、`status`、`unfilled_reason`（UnfilledReason，可空）。
+`ExecutionRecord`：`execution_date`、`security_id`、`side`、`requested_quantity`、`filled_quantity`、`execution_price`、`gross_amount`、`fees`、`status`、`unfilled_reason`（UnfilledReason，可空）、`reference_price`（开盘参考价，可空仅用于兼容外部构造；正式模拟成交必填）。
 
 `TradeAdviceItem`：`security_id`、`action`、`current_quantity`（可空）、`target_weight`、`target_amount`（可空）、`theoretical_target_quantity`（可空）、`suggested_quantity`（可空）、`max_confirmed_sell_quantity`（可空）、`unresolved_quantity`（可空）、`reference_price`（可空）、`reference_price_date`（可空）、`reason_codes`、`limitations`。
 

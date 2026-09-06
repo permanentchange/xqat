@@ -72,6 +72,7 @@ _EXECUTION_DEFAULTS: dict[str, object] = {
     "max_volume_participation": Decimal("0.10"),
     "fee_schedule_id": "cn_cash_market_default_v1",
     "dividend_tax_model": "PROVIDER_AFTER_TAX",
+    "dividend_tax_rate": Decimal("0"),
 }
 
 
@@ -220,6 +221,11 @@ def resolve_config(
     execution_raw = raw.get("execution", {})
     if not isinstance(execution_raw, Mapping):
         raise ConfigError("CONFIG_SCHEMA_INVALID: execution must be a table")
+    unknown_execution = set(execution_raw) - set(_EXECUTION_DEFAULTS)
+    if unknown_execution:
+        raise ConfigError(
+            f"CONFIG_SCHEMA_INVALID: unknown execution field {min(unknown_execution)}"
+        )
     execution = dict(_EXECUTION_DEFAULTS)
     execution.update(execution_raw)
     execution["slippage_bps"] = _decimal(execution["slippage_bps"], "slippage_bps")
@@ -227,10 +233,20 @@ def resolve_config(
     execution["max_volume_participation"] = _decimal(
         execution["max_volume_participation"], "max_volume_participation"
     )
+    execution["dividend_tax_rate"] = _decimal(execution["dividend_tax_rate"], "dividend_tax_rate")
     if cast(Decimal, execution["initial_cash"]) <= 0:
         raise ConfigError("CONFIG_VALUE_INVALID: initial_cash must be positive")
     if not Decimal("0") < cast(Decimal, execution["max_volume_participation"]) <= 1:
         raise ConfigError("CONFIG_VALUE_INVALID: max_volume_participation must be in (0,1]")
+    tax_model = str(execution["dividend_tax_model"])
+    if tax_model not in {"PROVIDER_AFTER_TAX", "FLAT_RATE"}:
+        raise ConfigError("CONFIG_VALUE_INVALID: dividend_tax_model is invalid")
+    if tax_model == "FLAT_RATE" and "dividend_tax_rate" not in execution_raw:
+        raise ConfigError("CONFIG_VALUE_INVALID: dividend_tax_rate is required for FLAT_RATE")
+    if tax_model != "FLAT_RATE" and "dividend_tax_rate" in execution_raw:
+        raise ConfigError("CONFIG_VALUE_INVALID: dividend_tax_rate is only valid for FLAT_RATE")
+    if not Decimal("0") <= cast(Decimal, execution["dividend_tax_rate"]) <= 1:
+        raise ConfigError("CONFIG_VALUE_INVALID: dividend_tax_rate must be in [0,1]")
     research = Path(str(cli_values.get("research_artifact") or raw["research_artifact"])).resolve()
     output_value = cli_values.get("output") or raw.get("output")
     if not output_value:
