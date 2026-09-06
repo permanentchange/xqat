@@ -61,3 +61,34 @@ def test_suspended_and_locked_limit_are_normal_unfilled_facts() -> None:
     )
     assert result.record is None
     assert result.unfilled_reason is UnfilledReason.SUSPENDED
+
+
+def test_tick_is_reclamped_inside_non_tick_market_boundary() -> None:
+    result = ExecutionSimulator(FeeModel.default()).execute(
+        instruction(quantity=100),
+        facts(high_raw=Decimal("10.005")),
+        date(2026, 9, 4),
+        Decimal("100000"),
+        0,
+        0,
+        Decimal("1"),
+        Decimal("10"),
+    )
+    assert result.record is not None
+    assert result.record.execution_price == Decimal("10.00")
+
+
+def test_full_exit_odd_lot_uses_share_capacity_not_buy_lot_rounding() -> None:
+    result = ExecutionSimulator(FeeModel.default()).execute(
+        instruction(side=OrderSide.SELL, quantity=50),
+        facts(volume_shares=500),
+        date(2026, 9, 4),
+        Decimal("0"),
+        50,
+        50,
+        Decimal("0.10"),
+        Decimal("0"),
+    )
+    assert result.record is not None
+    assert result.record.filled_quantity == 50
+    assert result.record.status is FillStatus.FILLED

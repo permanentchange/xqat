@@ -5,8 +5,29 @@ from xqatexp.domain.enums import OrderSide
 from xqatexp.portfolio.rebalance import LotRule, RebalancePlanner
 
 
-def _fees(side, quantity, price):
+def _fees(security_id, side, quantity, price):
+    del security_id, side, price
     return Decimal("5.00") if quantity else Decimal("0")
+
+
+def test_fee_estimator_receives_security_identity() -> None:
+    calls = []
+
+    def fees(security_id, side, quantity, price):
+        calls.append((security_id, side, quantity, price))
+        return Decimal("0")
+
+    RebalancePlanner(fees).plan(
+        target(),
+        current_positions={},
+        sellable_quantities={},
+        portfolio_value=Decimal("100000"),
+        reference_prices={"600000.SH": Decimal("10")},
+        lot_rules={"600000.SH": LotRule(100, 100)},
+        cash_budget=Decimal("100000"),
+    )
+    assert calls
+    assert {call[0] for call in calls} == {"600000.SH"}
 
 
 def test_target_quantity_golden_vector_and_buy_difference() -> None:

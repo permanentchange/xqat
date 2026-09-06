@@ -24,7 +24,9 @@ class RebalancePlan:
 
 
 class RebalancePlanner:
-    def __init__(self, fee_estimator: Callable[[OrderSide, int, Decimal], Decimal]) -> None:
+    def __init__(
+        self, fee_estimator: Callable[[str, OrderSide, int, Decimal], Decimal]
+    ) -> None:
         self._fee = fee_estimator
 
     def plan(
@@ -104,9 +106,13 @@ class RebalancePlanner:
         for _, _, security_id, desired in buy_candidates:
             rule = lot_rules[security_id]
             price = reference_prices[security_id]
-            requested = self._affordable(desired, rule.buy_lot_size, price, cash)
+            requested = self._affordable(
+                security_id, desired, rule.buy_lot_size, price, cash
+            )
             if requested:
-                cash -= Decimal(requested) * price + self._fee(OrderSide.BUY, requested, price)
+                cash -= Decimal(requested) * price + self._fee(
+                    security_id, OrderSide.BUY, requested, price
+                )
                 buys.append(
                     RebalanceInstruction(
                         security_id,
@@ -122,13 +128,17 @@ class RebalancePlanner:
                 )
         return RebalancePlan(tuple(sells + buys), quantize_fen(cash), amounts, quantities)
 
-    def _affordable(self, desired: int, lot_size: int, price: Decimal, cash: Decimal) -> int:
+    def _affordable(
+        self, security_id: str, desired: int, lot_size: int, price: Decimal, cash: Decimal
+    ) -> int:
         high = desired // lot_size
         low = 0
         while low < high:
             middle = (low + high + 1) // 2
             quantity = middle * lot_size
-            cost = Decimal(quantity) * price + self._fee(OrderSide.BUY, quantity, price)
+            cost = Decimal(quantity) * price + self._fee(
+                security_id, OrderSide.BUY, quantity, price
+            )
             if cost <= cash:
                 low = middle
             else:

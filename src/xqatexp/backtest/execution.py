@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from decimal import ROUND_FLOOR, Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 
 from xqatexp.backtest.fees import FeeModel
 from xqatexp.domain.contracts import ExecutionRecord, RebalanceInstruction
@@ -58,13 +58,23 @@ class ExecutionSimulator:
                 None, UnfilledReason.LIMIT_DOWN_LOCKED, instruction.requested_quantity
             )
         price = self._price(instruction.side, facts, slippage_bps)
-        capacity = (
-            int(
-                (
-                    Decimal(facts.volume_shares) * max_volume_participation / instruction.lot_size
-                ).to_integral_value(rounding=ROUND_FLOOR)
+        if price is None:
+            return ExecutionOutcome(
+                None, UnfilledReason.NO_EXECUTION_PRICE, instruction.requested_quantity
             )
-            * instruction.lot_size
+        raw_capacity = int(
+            (Decimal(facts.volume_shares) * max_volume_participation).to_integral_value(
+                rounding=ROUND_FLOOR
+            )
+        )
+        full_odd_lot_exit = (
+            instruction.side is OrderSide.SELL
+            and instruction.requested_quantity == holding_quantity
+        )
+        capacity = (
+            raw_capacity
+            if full_odd_lot_exit
+            else raw_capacity // instruction.lot_size * instruction.lot_size
         )
         quantity = min(instruction.requested_quantity, capacity)
         reason = UnfilledReason.VOLUME_CAP if quantity < instruction.requested_quantity else None
@@ -114,13 +124,27 @@ class ExecutionSimulator:
         )
 
     @staticmethod
-    def _price(side: OrderSide, facts: ExecutionFacts, slippage_bps: Decimal) -> Decimal:
+    def _price(
+        side: OrderSide, facts: ExecutionFacts, slippage_bps: Decimal
+    ) -> Decimal | None:
         direction = Decimal("1") if side is OrderSide.BUY else Decimal("-1")
         candidate = facts.open_raw * (Decimal("1") + direction * slippage_bps / 10_000)
         price = quantize_price(candidate, facts.price_tick)
         if side is OrderSide.BUY:
-            return min(max(price, facts.open_raw, facts.low_raw), facts.high_raw, facts.up_limit)
-        return max(min(price, facts.open_raw, facts.high_raw), facts.low_raw, facts.down_limit)
+            lower = max(facts.open_raw, facts.low_raw, facts.down_limit)
+            upper = min(facts.high_raw, facts.up_limit)
+            clamped = min(max(price, lower), upper)
+            result = (
+                clamped / facts.price_tick
+            ).to_integral_value(rounding=ROUND_FLOOR) * facts.price_tick
+        else:
+            lower = max(facts.low_raw, facts.down_limit)
+            upper = min(facts.open_raw, facts.high_raw, facts.up_limit)
+            clamped = max(min(price, upper), lower)
+            result = (
+                clamped / facts.price_tick
+            ).to_integral_value(rounding=ROUND_CEILING) * facts.price_tick
+        return result if lower <= result <= upper else None
 
     def _cash_quantity(
         self,

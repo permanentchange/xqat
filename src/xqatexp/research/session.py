@@ -62,6 +62,55 @@ class ResearchSession:
         scoped = days[-self._declaration.lookback_trade_days :]
         return ResearchDataViewImpl(self._connection, self._declaration, decision_date, scoped[0])
 
+    def trading_days(self, start: date, end: date) -> tuple[date, ...]:
+        if self.closed or start > end:
+            raise ResearchAccessError("DATA_INPUT_CORRUPT: invalid research session range")
+        return tuple(
+            cast(date, row[0])
+            for row in self._connection.execute(
+                "SELECT calendar_date FROM trade_calendar "
+                "WHERE is_open AND calendar_date BETWEEN ? AND ? ORDER BY calendar_date",
+                [start, end],
+            ).fetchall()
+        )
+
+    def next_trading_day(self, after: date) -> date:
+        if self.closed:
+            raise ResearchAccessError("DATA_INPUT_CORRUPT: session is closed")
+        row = self._connection.execute(
+            "SELECT calendar_date FROM trade_calendar "
+            "WHERE is_open AND calendar_date>? ORDER BY calendar_date LIMIT 1",
+            [after],
+        ).fetchone()
+        if row is None:
+            raise ResearchAccessError("DATA_REQUIRED_MISSING: next trading day")
+        return cast(date, row[0])
+
+    def execution_rows(
+        self, execution_date: date, security_ids: Sequence[str]
+    ) -> tuple[dict[str, Any], ...]:
+        if self.closed:
+            raise ResearchAccessError("DATA_INPUT_CORRUPT: session is closed")
+        if not security_ids:
+            return ()
+        marks = ",".join("?" for _ in security_ids)
+        return tuple(
+            _rows(
+                self._connection.execute(
+                    "SELECT m.security_id,m.asset_type,m.price_tick,m.buy_lot_size,"
+                    "m.sell_lot_size,d.open_raw,d.high_raw,d.low_raw,d.close_raw,"
+                    "d.volume_shares,s.is_listed,s.is_suspended_full_day,s.up_limit,"
+                    "s.down_limit,s.is_limit_up_locked,s.is_limit_down_locked "
+                    "FROM security_master m JOIN market_daily d USING(security_id) "
+                    "LEFT JOIN security_status_daily s ON s.security_id=m.security_id "
+                    "AND s.trade_date=d.trade_date AND s.available_from<=? "
+                    f"WHERE m.security_id IN ({marks}) AND d.trade_date=? "
+                    "AND d.available_from<=? ORDER BY m.security_id",
+                    [execution_date, *security_ids, execution_date, execution_date],
+                )
+            )
+        )
+
 
 class ResearchDataViewImpl:
     def __init__(
