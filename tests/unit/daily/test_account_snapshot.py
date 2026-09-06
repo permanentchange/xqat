@@ -56,3 +56,16 @@ def test_duplicate_security_and_future_snapshot_are_rejected(tmp_path: Path) -> 
             path,
             run_started_at=datetime.fromisoformat("2026-09-04T17:00:00+08:00"),
         )
+
+
+@pytest.mark.parametrize(
+    "name",
+    ("account-complete.json", "account-empty.json", "account-partial.json", "account-unknown.json"),
+)
+def test_repository_account_examples_are_valid(name: str) -> None:
+    root = Path(__file__).resolve().parents[3]
+    parsed = parse_account_snapshot(
+        root / "examples" / name,
+        run_started_at=datetime.fromisoformat("2026-09-06T12:00:00+08:00"),
+    )
+    assert parsed.schema_version == "1.0"

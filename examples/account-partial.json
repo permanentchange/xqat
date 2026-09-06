@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0",
+  "as_of": "2026-09-04T18:00:00+08:00",
+  "currency": "CNY",
+  "account_scope": "STRATEGY_MANAGED",
+  "scope_completeness": "COMPLETE",
+  "positions_completeness": "PARTIAL",
+  "available_cash": 100000,
+  "managed_total_assets": 1000000,
+  "excluded_asset_value": 0,
+  "source_note": "离线示例: 只列出部分持仓",
+  "positions": [
+    {
+      "security_id": "600000.SH",
+      "quantity": 100,
+      "sellable_quantity": 100,
+      "market_value": 1320,
+      "reference_price": 13.20,
+      "reference_price_date": "2026-09-04"
+    }
+  ]
+}

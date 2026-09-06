@@ -1,0 +1,13 @@
+schema_version = "1.0"
+mode = "DAILY_TARGET"
+strategy_id = "weekly_market_guard_rank_v1"
+strategy_version = "1.0.0"
+research_artifact = ".example-work/research"
+decision_date = "2026-09-04"
+output = ".example-work/custom-target-placeholder"
+
+[strategy]
+csi300_etf_id = "510300.SH"
+custom_factor_name = "quality_score"
+custom_factor_weight = 0.10
+custom_factor_direction = "HIGHER_BETTER"

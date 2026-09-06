@@ -1,0 +1,7 @@
+-r requirements.in
+hypothesis>=6,<7
+mypy>=1.13,<2
+pip-tools>=7.4,<8
+pytest>=8,<10
+pytest-cov>=6,<8
+ruff>=0.9,<1

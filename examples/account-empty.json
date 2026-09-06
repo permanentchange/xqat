@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "as_of": "2026-09-04T18:00:00+08:00",
+  "currency": "CNY",
+  "account_scope": "STRATEGY_MANAGED",
+  "scope_completeness": "COMPLETE",
+  "positions_completeness": "COMPLETE",
+  "available_cash": 0,
+  "managed_total_assets": 0,
+  "excluded_asset_value": 0,
+  "source_note": "离线示例: 已确认空账户",
+  "positions": []
+}

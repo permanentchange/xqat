@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -319,7 +320,12 @@ _SORT_KEYS = {
 
 class SchemaRegistry:
     def __init__(self, schema_root: Path | None = None) -> None:
-        self._schema_root = schema_root or Path(__file__).resolve().parents[3] / "schemas"
+        if schema_root is not None:
+            self._schema_root = schema_root
+        else:
+            source_root = Path(__file__).resolve().parents[3] / "schemas"
+            installed_root = Path(sys.prefix) / "schemas"
+            self._schema_root = source_root if source_root.is_dir() else installed_root
 
     @property
     def schema_ids(self) -> tuple[str, ...]:

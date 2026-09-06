@@ -106,7 +106,11 @@ class CustomFactorCheckService:
         try:
             opened = ArtifactReader().open(research_path)
             master = pq.read_table(opened.path / "tables/security_master.parquet").to_pylist()
-            known = {str(row["security_id"]) for row in master}
+            known = {
+                str(row["security_id"])
+                for row in master
+                if row["asset_type"] == "A_SHARE"
+            }
             with path.open("r", encoding="utf-8", newline="") as stream:
                 records = list(csv.DictReader(stream))
             names = {str(row.get("factor_name", "")) for row in records}
