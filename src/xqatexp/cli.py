@@ -1,22 +1,31 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
 import tomllib
+import uuid
 from collections.abc import Sequence
-from datetime import date, timedelta
+from dataclasses import replace
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from xqatexp.application.services import SelfCheckService
+from xqatexp.application.workflows import StrategyWorkflowService
 from xqatexp.artifacts.manifest import canonical_json_bytes
 from xqatexp.artifacts.publisher import ArtifactPublishError
+from xqatexp.artifacts.readers import ArtifactReader
+from xqatexp.config import resolve_config
+from xqatexp.domain.contracts import CustomFactorInput
 from xqatexp.domain.enums import OverwritePolicy
 from xqatexp.providers.tushare.capability import CapabilityProbe
 from xqatexp.providers.tushare.client import TushareClient, TushareError
 from xqatexp.providers.tushare.raw import FetchRequest, RawCheckService, RawFetchService
 from xqatexp.providers.tushare.registry import dataset_ids
+from xqatexp.reporting.readers import load_target
+from xqatexp.research.custom_factors import CustomFactorCheckService
 from xqatexp.research.tables import ResearchBuildConfig, ResearchBuilder, ResearchCheckService
 from xqatexp.security import SecurityError, load_tushare_token
 
@@ -60,19 +69,51 @@ def _build_parser() -> argparse.ArgumentParser:
     check_research.add_argument("--report", required=True, type=Path)
 
     factor = commands.add_parser("factor", help="Validate user custom factors.")
-    factor.add_subparsers(dest="factor_command", metavar="COMMAND").add_parser("check")
+    factor_check = factor.add_subparsers(dest="factor_command", metavar="COMMAND").add_parser(
+        "check"
+    )
+    factor_check.add_argument("--file", required=True, type=Path)
+    factor_check.add_argument("--research", required=True, type=Path)
+    factor_check.add_argument("--strategy", default="weekly_market_guard_rank_v1")
+    factor_check.add_argument("--start", required=True, type=date.fromisoformat)
+    factor_check.add_argument("--end", required=True, type=date.fromisoformat)
+    factor_check.add_argument("--report", required=True, type=Path)
 
     backtest = commands.add_parser("backtest", help="Run a historical evaluation.")
-    backtest.add_subparsers(dest="backtest_command", metavar="COMMAND").add_parser("run")
+    backtest_run = backtest.add_subparsers(dest="backtest_command", metavar="COMMAND").add_parser(
+        "run"
+    )
+    _add_run_arguments(backtest_run, dates="range")
 
     daily = commands.add_parser("daily", help="Generate daily target or advice artifacts.")
     daily_commands = daily.add_subparsers(dest="daily_command", metavar="COMMAND")
-    daily_commands.add_parser("target")
-    daily_commands.add_parser("advise")
+    daily_target = daily_commands.add_parser("target")
+    _add_run_arguments(daily_target, dates="decision")
+    daily_target.add_argument("--previous-target", type=Path)
+    daily_advice = daily_commands.add_parser("advise")
+    daily_advice.add_argument("--config", required=True, type=Path)
+    daily_advice.add_argument("--target", required=True, type=Path)
+    daily_advice.add_argument("--account", type=Path)
+    daily_advice.add_argument("--output", required=True, type=Path)
+    daily_advice.add_argument("--existing", choices=("error", "skip", "overwrite"), default="error")
 
     result = commands.add_parser("result", help="Inspect a published result artifact.")
-    result.add_subparsers(dest="result_command", metavar="COMMAND").add_parser("show")
+    show = result.add_subparsers(dest="result_command", metavar="COMMAND").add_parser("show")
+    show.add_argument("--input", required=True, type=Path)
+    show.add_argument("--format", choices=("summary", "markdown", "json"), default="summary")
     return parser
+
+
+def _add_run_arguments(parser: argparse.ArgumentParser, *, dates: str) -> None:
+    parser.add_argument("--config", required=True, type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    if dates == "range":
+        parser.add_argument("--start-date", type=date.fromisoformat)
+        parser.add_argument("--end-date", type=date.fromisoformat)
+    else:
+        parser.add_argument("--decision-date", required=True, type=date.fromisoformat)
+    parser.add_argument("--custom-factor", action="append", type=Path, default=[])
+    parser.add_argument("--existing", choices=("error", "skip", "overwrite"), default="error")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -91,8 +132,140 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "data":
         return _run_data(args)
+    if args.command == "factor":
+        return _run_factor(args)
+    if args.command in {"backtest", "daily"}:
+        return _run_strategy(args)
+    if args.command == "result" and args.result_command == "show":
+        return _show_result(args.input, args.format)
     print(f"{args.command} command is not implemented yet", file=sys.stderr)
     return 10
+
+
+def _run_factor(args: argparse.Namespace) -> int:
+    if args.factor_command != "check":
+        return 10
+    report = CustomFactorCheckService().check(args.file, args.research, args.start, args.end)
+    try:
+        _write_new(
+            args.report,
+            canonical_json_bytes(
+                {
+                    "schema_version": "1.0",
+                    "valid": report.valid,
+                    "factor_names": list(report.factor_names),
+                    "row_count": report.row_count,
+                    "minimum_coverage": report.minimum_coverage,
+                    "issue_codes": list(report.issue_codes),
+                }
+            ),
+        )
+    except (OSError, ArtifactPublishError) as error:
+        print(str(error), file=sys.stderr)
+        return 4
+    print(f"FACTOR_CHECK valid={str(report.valid).lower()} report={args.report}")
+    return 0 if report.valid else 3
+
+
+def _run_strategy(args: argparse.Namespace) -> int:
+    now = datetime.now(UTC)
+    try:
+        if args.command == "backtest":
+            cli_values = {
+                "mode": "BACKTEST",
+                "output": args.output,
+                "start_date": args.start_date,
+                "end_date": args.end_date,
+            }
+            context = resolve_config(
+                cli_values, args.config, run_id=str(uuid.uuid4()), generated_at=now
+            )
+            if args.custom_factor:
+                context = replace(
+                    context,
+                    custom_factor_inputs=_custom_inputs(args.custom_factor),
+                )
+            output = StrategyWorkflowService().backtest(
+                context, OverwritePolicy(args.existing.upper())
+            )
+        elif args.daily_command == "target":
+            cli_values = {
+                "mode": "DAILY_TARGET",
+                "output": args.output,
+                "decision_date": args.decision_date,
+            }
+            context = resolve_config(
+                cli_values, args.config, run_id=str(uuid.uuid4()), generated_at=now
+            )
+            custom = _custom_inputs(args.custom_factor)
+            context = replace(
+                context,
+                custom_factor_inputs=custom or context.custom_factor_inputs,
+                previous_target_path=args.previous_target or context.previous_target_path,
+            )
+            output = StrategyWorkflowService().daily_target(
+                context, OverwritePolicy(args.existing.upper())
+            )
+        else:
+            target = load_target(args.target)
+            cli_values = {
+                "mode": "DAILY_ADVICE",
+                "output": args.output,
+                "decision_date": target.decision_date,
+            }
+            context = resolve_config(
+                cli_values, args.config, run_id=str(uuid.uuid4()), generated_at=now
+            )
+            output = StrategyWorkflowService().daily_advice(
+                context,
+                args.target,
+                args.account,
+                OverwritePolicy(args.existing.upper()),
+                now,
+            )
+        print(f"RESULT_WRITTEN output={output}")
+        return 0
+    except ArtifactPublishError as error:
+        print(str(error), file=sys.stderr)
+        return 4
+    except (OSError, ValueError, KeyError) as error:
+        print(str(error), file=sys.stderr)
+        return (
+            3
+            if str(error).split(":", 1)[0]
+            in {
+                "DATA_REQUIRED_MISSING",
+                "DATA_COVERAGE_INSUFFICIENT",
+                "STRATEGY_WARMUP_INSUFFICIENT",
+                "FACTOR_COVERAGE_INSUFFICIENT",
+            }
+            else 2
+        )
+
+
+def _custom_inputs(paths: Sequence[Path]) -> tuple[CustomFactorInput, ...]:
+    return tuple(
+        CustomFactorInput(path.resolve(), hashlib.sha256(path.read_bytes()).hexdigest())
+        for path in paths
+    )
+
+
+def _show_result(path: Path, output_format: str) -> int:
+    try:
+        opened = ArtifactReader().open(path)
+        if output_format == "json":
+            print(canonical_json_bytes(opened.manifest).decode("utf-8"), end="")
+        elif output_format == "markdown":
+            print((opened.path / "report.md").read_text(encoding="utf-8"), end="")
+        else:
+            print(f"RESULT type={opened.manifest['artifact_type']} input={opened.path.name}")
+            report = opened.path / "report.md"
+            if report.is_file():
+                print(report.read_text(encoding="utf-8"), end="")
+        return 0
+    except (OSError, ValueError) as error:
+        print(str(error), file=sys.stderr)
+        return 4
 
 
 def _run_data(args: argparse.Namespace) -> int:

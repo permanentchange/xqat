@@ -66,6 +66,7 @@ _STRATEGY_DEFAULTS: dict[str, object] = {
 }
 
 _EXECUTION_DEFAULTS: dict[str, object] = {
+    "initial_cash": Decimal("1000000"),
     "price_model": "NEXT_OPEN",
     "slippage_bps": Decimal("10"),
     "max_volume_participation": Decimal("0.10"),
@@ -222,9 +223,14 @@ def resolve_config(
     execution = dict(_EXECUTION_DEFAULTS)
     execution.update(execution_raw)
     execution["slippage_bps"] = _decimal(execution["slippage_bps"], "slippage_bps")
+    execution["initial_cash"] = _decimal(execution["initial_cash"], "initial_cash")
     execution["max_volume_participation"] = _decimal(
         execution["max_volume_participation"], "max_volume_participation"
     )
+    if cast(Decimal, execution["initial_cash"]) <= 0:
+        raise ConfigError("CONFIG_VALUE_INVALID: initial_cash must be positive")
+    if not Decimal("0") < cast(Decimal, execution["max_volume_participation"]) <= 1:
+        raise ConfigError("CONFIG_VALUE_INVALID: max_volume_participation must be in (0,1]")
     research = Path(str(cli_values.get("research_artifact") or raw["research_artifact"])).resolve()
     output_value = cli_values.get("output") or raw.get("output")
     if not output_value:

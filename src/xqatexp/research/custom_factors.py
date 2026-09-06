@@ -3,9 +3,14 @@ from __future__ import annotations
 import csv
 import math
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+
+import pyarrow.parquet as pq
+
+from xqatexp.artifacts.readers import ArtifactReader
 
 _HEADER = ("factor_name", "security_id", "factor_date", "factor_value")
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
@@ -68,8 +73,8 @@ class CsvCustomFactorView:
     def values_at(
         self,
         factor_date: date,
-        factor_ids: tuple[str, ...],
-        security_ids: tuple[str, ...],
+        factor_ids: Sequence[str],
+        security_ids: Sequence[str],
     ) -> dict[str, dict[str, float]]:
         if factor_date > self.decision_date:
             raise CustomFactorError("STRATEGY_HISTORY_SLICE_VIOLATION: future factor date")
@@ -83,3 +88,49 @@ class CsvCustomFactorView:
             }
             for factor_id in sorted(factor_ids)
         }
+
+
+@dataclass(frozen=True, slots=True)
+class CustomFactorCheckReport:
+    valid: bool
+    factor_names: tuple[str, ...]
+    row_count: int
+    minimum_coverage: float
+    issue_codes: tuple[str, ...]
+
+
+class CustomFactorCheckService:
+    def check(
+        self, path: Path, research_path: Path, start: date, end: date
+    ) -> CustomFactorCheckReport:
+        try:
+            opened = ArtifactReader().open(research_path)
+            master = pq.read_table(opened.path / "tables/security_master.parquet").to_pylist()
+            known = {str(row["security_id"]) for row in master}
+            with path.open("r", encoding="utf-8", newline="") as stream:
+                records = list(csv.DictReader(stream))
+            names = {str(row.get("factor_name", "")) for row in records}
+            view = CsvCustomFactorView.load(
+                path,
+                decision_date=end,
+                known_security_ids=known,
+                required_factor_ids=names,
+            )
+            del view
+            in_range = [
+                row
+                for row in records
+                if start <= date.fromisoformat(str(row["factor_date"])) <= end
+            ]
+            keys = {(row["factor_name"], row["security_id"]) for row in in_range}
+            denominator = max(1, len(names) * len(known))
+            coverage = len(keys) / denominator
+            issues = () if coverage >= 0.98 else ("FACTOR_COVERAGE_INSUFFICIENT",)
+            return CustomFactorCheckReport(
+                not issues, tuple(sorted(names)), len(records), coverage, issues
+            )
+        except (ValueError, OSError) as error:
+            code = str(error).split(":", 1)[0]
+            if not code.startswith("FACTOR_"):
+                code = "FACTOR_SCHEMA_INVALID"
+            return CustomFactorCheckReport(False, (), 0, 0.0, (code,))

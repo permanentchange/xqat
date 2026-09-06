@@ -24,9 +24,7 @@ class RebalancePlan:
 
 
 class RebalancePlanner:
-    def __init__(
-        self, fee_estimator: Callable[[str, OrderSide, int, Decimal], Decimal]
-    ) -> None:
+    def __init__(self, fee_estimator: Callable[[str, OrderSide, int, Decimal], Decimal]) -> None:
         self._fee = fee_estimator
 
     def plan(
@@ -106,9 +104,7 @@ class RebalancePlanner:
         for _, _, security_id, desired in buy_candidates:
             rule = lot_rules[security_id]
             price = reference_prices[security_id]
-            requested = self._affordable(
-                security_id, desired, rule.buy_lot_size, price, cash
-            )
+            requested = self._affordable(security_id, desired, rule.buy_lot_size, price, cash)
             if requested:
                 cash -= Decimal(requested) * price + self._fee(
                     security_id, OrderSide.BUY, requested, price

@@ -195,9 +195,7 @@ class BacktestEngine:
             previous_cash = account.cash_available + account.cash_receivable
 
             if self._is_weekly_close(data, current_day):
-                generated = strategy.generate_target(
-                    data.view(current_day), custom, parameters
-                )
+                generated = strategy.generate_target(data.view(current_day), custom, parameters)
                 annotated = annotate_transitions(generated, previous_target)
                 if annotated.effective_from <= current_day:
                     raise ValueError("PORTFOLIO_INVALID_TARGET: target is not forward effective")
@@ -236,12 +234,16 @@ class BacktestEngine:
             return self._fees.calculate(assets[security_id], side, gross, execution_date).total
 
         planner = RebalancePlanner(estimate)
-        open_value = account.cash_available + account.cash_receivable + sum(
-            (
-                Decimal(quantity) * prices[security_id]
-                for security_id, quantity in account.positions.items()
-            ),
-            Decimal("0"),
+        open_value = (
+            account.cash_available
+            + account.cash_receivable
+            + sum(
+                (
+                    Decimal(quantity) * prices[security_id]
+                    for security_id, quantity in account.positions.items()
+                ),
+                Decimal("0"),
+            )
         )
         sell_plan = planner.plan(
             target,
@@ -359,10 +361,7 @@ class BacktestEngine:
     def _rows_by_security(
         data: EngineData, on_date: date, security_ids: Sequence[str]
     ) -> dict[str, Mapping[str, Any]]:
-        rows = {
-            str(row["security_id"]): row
-            for row in data.execution_rows(on_date, security_ids)
-        }
+        rows = {str(row["security_id"]): row for row in data.execution_rows(on_date, security_ids)}
         missing = set(security_ids) - set(rows)
         if missing:
             raise ValueError(f"BACKTEST_VALUATION_MISSING: {min(missing)} on {on_date}")
@@ -398,9 +397,7 @@ class BacktestEngine:
         return result
 
     @staticmethod
-    def _decimal(
-        row: Mapping[str, Any], field: str, *, fallback: str | None = None
-    ) -> Decimal:
+    def _decimal(row: Mapping[str, Any], field: str, *, fallback: str | None = None) -> Decimal:
         value = row.get(field)
         if value is None and fallback is not None:
             value = row.get(fallback)

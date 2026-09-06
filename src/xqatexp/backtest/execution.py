@@ -124,9 +124,7 @@ class ExecutionSimulator:
         )
 
     @staticmethod
-    def _price(
-        side: OrderSide, facts: ExecutionFacts, slippage_bps: Decimal
-    ) -> Decimal | None:
+    def _price(side: OrderSide, facts: ExecutionFacts, slippage_bps: Decimal) -> Decimal | None:
         direction = Decimal("1") if side is OrderSide.BUY else Decimal("-1")
         candidate = facts.open_raw * (Decimal("1") + direction * slippage_bps / 10_000)
         price = quantize_price(candidate, facts.price_tick)
@@ -134,16 +132,16 @@ class ExecutionSimulator:
             lower = max(facts.open_raw, facts.low_raw, facts.down_limit)
             upper = min(facts.high_raw, facts.up_limit)
             clamped = min(max(price, lower), upper)
-            result = (
-                clamped / facts.price_tick
-            ).to_integral_value(rounding=ROUND_FLOOR) * facts.price_tick
+            result = (clamped / facts.price_tick).to_integral_value(
+                rounding=ROUND_FLOOR
+            ) * facts.price_tick
         else:
             lower = max(facts.low_raw, facts.down_limit)
             upper = min(facts.open_raw, facts.high_raw, facts.up_limit)
             clamped = max(min(price, upper), lower)
-            result = (
-                clamped / facts.price_tick
-            ).to_integral_value(rounding=ROUND_CEILING) * facts.price_tick
+            result = (clamped / facts.price_tick).to_integral_value(
+                rounding=ROUND_CEILING
+            ) * facts.price_tick
         return result if lower <= result <= upper else None
 
     def _cash_quantity(

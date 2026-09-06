@@ -312,6 +312,10 @@ _PRIMARY_KEYS = {
     "unfilled": ("instruction_id", "execution_date", "reason"),
 }
 
+_SORT_KEYS = {
+    "trades": ("execution_date", "priority", "security_id", "execution_id"),
+}
+
 
 class SchemaRegistry:
     def __init__(self, schema_root: Path | None = None) -> None:
@@ -387,5 +391,9 @@ class SchemaRegistry:
         keys = list(zip(*(table.column(name).to_pylist() for name in key_names), strict=True))
         if len(keys) != len(set(keys)):
             raise SchemaValidationError(f"DATA_CONFLICT: {schema_id} duplicate primary key")
-        if keys != sorted(keys):
+        sort_names = _SORT_KEYS.get(schema_id, key_names)
+        sort_keys = list(
+            zip(*(table.column(name).to_pylist() for name in sort_names), strict=True)
+        )
+        if sort_keys != sorted(sort_keys):
             raise SchemaValidationError(f"DATA_CONFLICT: {schema_id} rows are not sorted")

@@ -31,9 +31,7 @@ class FeeModel:
 
     @classmethod
     def default(cls) -> FeeModel:
-        current = FeeRates(
-            Decimal("0.0003"), Decimal("5"), Decimal("0.00001"), Decimal("0.0005")
-        )
+        current = FeeRates(Decimal("0.0003"), Decimal("5"), Decimal("0.00001"), Decimal("0.0005"))
         return cls(
             current,
             FeeRates(Decimal("0.0003"), Decimal("5"), Decimal("0"), Decimal("0")),

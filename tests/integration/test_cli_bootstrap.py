@@ -31,8 +31,7 @@ def test_python_module_exposes_help() -> None:
     assert "result" in completed.stdout
 
 
-def test_unwired_business_command_never_reports_success() -> None:
-    """Catches a CLI shell that falsely returns success before a use case runs."""
+def test_factor_check_requires_explicit_inputs() -> None:
     environment = os.environ.copy()
     environment["PYTHONPATH"] = str(PROJECT_ROOT / "src")
 
@@ -45,8 +44,8 @@ def test_unwired_business_command_never_reports_success() -> None:
         check=False,
     )
 
-    assert completed.returncode == 10
-    assert "not implemented" in completed.stderr.lower()
+    assert completed.returncode == 2
+    assert "required" in completed.stderr.lower()
 
 
 def test_capabilities_without_token_fails_without_creating_output(tmp_path: Path) -> None:
