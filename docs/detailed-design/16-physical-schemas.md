@@ -94,7 +94,7 @@ Gzip 内为 UTF-8 JSON Lines，每行一个供应商原始记录；键名和值�
 
 ## 6. resolved_config.json 1.0
 
-字段与 `ResolvedRunContext` 对应，但路径保存为用户输入别名和 SHA-256，不保存 Token 或秘密环境变量。固定字段：`schema_version`、`mode`、`strategy_id`、`strategy_version`、`parameters`、`research_input`、`custom_factor_inputs`、`decision_date`、`start_date`、`end_date`、`account_input`、`previous_target_input`、`output_alias`、`execution_assumptions`。不保存 `run_id`、`generated_at` 等非业务值，以便配置摘要只反映业务输入。
+字段与 `ResolvedRunContext` 对应，但路径保存为用户输入别名和 SHA-256，不保存 Token 或秘密环境变量。固定字段：`schema_version`、`mode`、`strategy_id`、`strategy_version`、`parameters`、`research_input`、`custom_factor_inputs`、`decision_date`、`start_date`、`end_date`、`analysis_periods`、`account_input`、`previous_target_input`、`output_alias`、`execution_assumptions`。`analysis_periods` 是 1.0 的向后兼容可选字段：新生产者始终输出，旧 1.0 产物省略时消费者按空数组处理；元素固定为 `label,start_date,end_date`，按起始日、结束日、名称排序。不保存 `run_id`、`generated_at` 等非业务值，以便配置摘要只反映业务输入。
 
 ## 7. Target 文件
 
@@ -229,7 +229,7 @@ Gzip 内为 UTF-8 JSON Lines，每行一个供应商原始记录；键名和值�
 
 ### 9.2 period_metrics.csv 1.0
 
-固定列：`period_type,period_label,start_date,end_date,valuation_points,return_intervals,cumulative_return,annualized_return,annualized_volatility,max_drawdown,sharpe,calmar,one_way_turnover,total_fees,total_slippage_cost,limitations`。主键 `period_type,period_label`；按 `start_date, period_type, period_label` 排序。
+固定列：`period_type,period_label,start_date,end_date,valuation_points,return_intervals,cumulative_return,annualized_return,annualized_volatility,max_drawdown,sharpe,calmar,one_way_turnover,total_fees,total_slippage_cost,limitations`。`period_type` 只允许 `FULL/CALENDAR_YEAR/USER_DEFINED`。主键 `period_type,period_label`；按 `start_date, period_type, period_label` 排序。用户阶段取配置边界内（含首尾）的实际估值点；少于两个点时指标为空并标记 `PERFORMANCE_INSUFFICIENT_SAMPLE`。
 
 ## 10. Trade Advice 文件
 

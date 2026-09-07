@@ -10,11 +10,12 @@ XQatExp 是一个本地运行的纯 Python A 股量化研究工具。它将显�
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install --require-hashes -r requirements.lock
-.\.venv\Scripts\python.exe -m pip install --no-deps --no-build-isolation -e .
+.\.venv\Scripts\python.exe -m pip install --require-hashes -r requirements-build.lock
+.\.venv\Scripts\python.exe -m pip install --no-deps --no-build-isolation .
 .\.venv\Scripts\xqatexp.exe self-check --offline
 ```
 
-开发与测试依赖使用 `requirements-dev.lock`。Git Bash 对应激活命令是 `source .venv/Scripts/activate`，也可以始终直接调用 `.venv/Scripts/python.exe`。
+`requirements-build.lock` 只锁定构建后端，开发与测试依赖使用 `requirements-dev.lock`。需要源码可编辑安装的开发者可把最后一条安装命令改为结尾带 `-e .`。Git Bash 对应激活命令是 `source .venv/Scripts/activate`，也可以始终直接调用 `.venv/Scripts/python.exe`。
 
 ## 2. 完整离线示例
 
@@ -30,6 +31,8 @@ py -3.12 -m venv .venv
 ```
 
 重复生成示例时给生成脚本加 `--overwrite`；重复写正式结果时，只有明确指定 `--existing overwrite` 才会替换已验证结果。
+
+回测配置可在顶层加入 `analysis_periods = [{ label = "阶段名", start_date = "YYYY-MM-DD", end_date = "YYYY-MM-DD" }]`。阶段可重叠但必须位于回测范围内，结果写入 `period_metrics.csv`，并明确标记为 `USER_DEFINED`。
 
 自定义因子路径：
 
@@ -64,6 +67,8 @@ $env:TUSHARE_TOKEN = "<在本机填写你的 Token>"
 随后对每个 Raw Artifact 执行 `data check-raw`，并把构建所需的各个 `--raw-root` 显式传给 `data build`。工具不会自动寻找 `latest`，也不会在回测、每日模式或结果查看时访问网络。
 
 ## 4. 产物与解释
+
+需要保留最小运行事件时，把全局参数放在业务命令之前，例如 `xqatexp --log-file .local\run.jsonl backtest run ...`。日志为脱敏 JSON Lines，只记录命令阶段和退出码；影响业务结论的事实仍以 Result、Issue 或 Failure Diagnostic 为准。
 
 - Research Artifact 保存七张版本化 Parquet 表；Raw 与 Research 不混用。
 - Backtest Result 包含目标历史、每日净值、成交、未成交、指标、阶段指标和 Markdown 报告。

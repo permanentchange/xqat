@@ -35,6 +35,14 @@ def resolved_context_value(context: ResolvedRunContext) -> dict[str, object]:
         ),
         "start_date": context.start_date.isoformat() if context.start_date is not None else None,
         "end_date": context.end_date.isoformat() if context.end_date is not None else None,
+        "analysis_periods": [
+            {
+                "label": item.label,
+                "start_date": item.start.isoformat(),
+                "end_date": item.end.isoformat(),
+            }
+            for item in context.analysis_periods
+        ],
         "account_input": (
             {"alias": "account", "provided": True}
             if context.account_snapshot_path is not None

@@ -3,13 +3,14 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 _SENSITIVE_KEY = re.compile(r"token|secret|password|credential|authorization", re.IGNORECASE)
 
 
 class SecurityError(RuntimeError):
-    pass
+    """A credential or output-safety boundary was violated."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,3 +74,24 @@ def assert_no_secret(material: str | bytes, known_secrets: Sequence[SecretValue]
     text = material.decode("utf-8", errors="replace") if isinstance(material, bytes) else material
     if _contains_secret_fragment(text, known_secrets):
         raise SecurityError("SECURITY_SECRET_EXPOSURE_BLOCKED: output contains credential material")
+
+
+def validate_disjoint_paths(inputs: Mapping[str, Path], outputs: Mapping[str, Path]) -> None:
+    """Reject any output that equals, contains, or is contained by an input/output."""
+    normalized_inputs = {name: path.resolve() for name, path in inputs.items()}
+    normalized_outputs = {name: path.resolve() for name, path in outputs.items()}
+
+    def overlaps(left: Path, right: Path) -> bool:
+        return left == right or left in right.parents or right in left.parents
+
+    for output_name, output in normalized_outputs.items():
+        for input_name, input_path in normalized_inputs.items():
+            if overlaps(output, input_path):
+                raise ValueError(
+                    f"CONFIG_PATH_CONFLICT: output {output_name} overlaps input {input_name}"
+                )
+        for other_name, other_output in normalized_outputs.items():
+            if output_name < other_name and overlaps(output, other_output):
+                raise ValueError(
+                    f"CONFIG_PATH_CONFLICT: outputs {output_name} and {other_name} overlap"
+                )

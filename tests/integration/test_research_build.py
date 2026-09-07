@@ -5,6 +5,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pyarrow.parquet as pq
+import pytest
 
 from xqatexp.artifacts.readers import ArtifactReader
 from xqatexp.cli import main
@@ -266,6 +267,20 @@ def test_research_check_reports_tampered_table(tmp_path: Path) -> None:
     report = ResearchCheckService().check(output)
     assert report.valid is False
     assert report.issue_codes == ("ARTIFACT_HASH_MISMATCH",)
+
+
+def test_research_builder_rejects_output_overlapping_direct_inputs(tmp_path: Path) -> None:
+    config = ResearchBuildConfig(
+        date(2026, 9, 4),
+        date(2026, 9, 4),
+        "510300.SH",
+        OverwritePolicy.ERROR,
+    )
+    shared = tmp_path / "shared"
+    with pytest.raises(ValueError, match="CONFIG_PATH_CONFLICT"):
+        ResearchBuilder().build((shared,), config, shared)
+    with pytest.raises(ValueError, match="CONFIG_PATH_CONFLICT"):
+        ResearchBuilder().update(shared, (), config, shared / "result")
 
 
 def test_full_day_suspension_has_status_even_without_daily_bar(tmp_path: Path) -> None:

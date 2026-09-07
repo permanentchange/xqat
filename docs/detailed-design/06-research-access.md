@@ -6,11 +6,11 @@
 
 1. 读取显式 Research Artifact Manifest；
 2. 校验 Schema Major 版本和文件摘要；
-3. 创建内存 DuckDB connection；
+3. 检查临时目录父路径至少有 1GB 可用空间，再创建内存 DuckDB connection；
 4. 将明确的 Parquet 路径注册为只读视图；
 5. 计算当前策略依赖闭包并执行就绪检查；
 6. 为每个决策日构造受限 View；
-7. 用例结束后关闭 connection，不保存 DuckDB 数据库文件。
+7. 用例结束后关闭 connection，不保存 DuckDB 数据库文件；即使初始化被中断或 connection 关闭失败，也必须清理本次会话唯一临时目录并保留原始异常语义。
 
 DuckDB SQL 只存在于 `research` 包内部。Strategy 不获得 connection、路径或 SQL 字符串。
 

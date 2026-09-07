@@ -12,7 +12,7 @@ from tests.unit.portfolio.test_validation import target
 from xqatexp.artifacts.readers import ArtifactReader
 from xqatexp.backtest.engine import BacktestEngine
 from xqatexp.daily.advice import DailyAdviceService
-from xqatexp.domain.contracts import ResolvedRunContext
+from xqatexp.domain.contracts import AnalysisPeriod, ResolvedRunContext
 from xqatexp.domain.enums import OverwritePolicy, RunMode
 from xqatexp.portfolio.rebalance import LotRule
 from xqatexp.reporting.publisher import ResultArtifactPublisher
@@ -121,3 +121,69 @@ def test_daily_advice_and_backtest_publish_complete_contracts(tmp_path: Path) ->
         ("FULL", "ALL"),
         ("CALENDAR_YEAR", "2026"),
     }
+
+
+def test_backtest_publishes_configured_analysis_period(tmp_path: Path) -> None:
+    context = replace(
+        _context(tmp_path),
+        mode=RunMode.BACKTEST,
+        decision_date=None,
+        start_date=date(2026, 9, 4),
+        end_date=date(2026, 9, 15),
+        analysis_periods=(AnalysisPeriod("opening", date(2026, 9, 4), date(2026, 9, 7)),),
+    )
+    result = BacktestEngine().run(
+        data=_Data(),
+        strategy=_Strategy(),
+        parameters={},
+        custom=None,
+        start_date=date(2026, 9, 4),
+        end_date=date(2026, 9, 15),
+        initial_cash=Decimal("10000"),
+        execution_assumptions={
+            "slippage_bps": Decimal("0"),
+            "max_volume_participation": Decimal("0.10"),
+        },
+    )
+    output = ResultArtifactPublisher().publish_backtest(context, result, OverwritePolicy.ERROR)
+    with (output.path / "period_metrics.csv").open(encoding="utf-8", newline="") as stream:
+        periods = list(csv.DictReader(stream))
+    custom = next(item for item in periods if item["period_type"] == "USER_DEFINED")
+    assert custom["period_label"] == "opening"
+    assert custom["valuation_points"] == "2"
+
+
+def test_repeated_backtest_has_identical_business_files(tmp_path: Path) -> None:
+    result = BacktestEngine().run(
+        data=_Data(),
+        strategy=_Strategy(),
+        parameters={},
+        custom=None,
+        start_date=date(2026, 9, 4),
+        end_date=date(2026, 9, 15),
+        initial_cash=Decimal("10000"),
+        execution_assumptions={
+            "slippage_bps": Decimal("0"),
+            "max_volume_participation": Decimal("0.10"),
+        },
+    )
+    base = replace(
+        _context(tmp_path),
+        mode=RunMode.BACKTEST,
+        decision_date=None,
+        start_date=date(2026, 9, 4),
+        end_date=date(2026, 9, 15),
+        output_path=tmp_path / "first" / "result",
+    )
+    first = ResultArtifactPublisher().publish_backtest(base, result, OverwritePolicy.ERROR)
+    second_context = replace(
+        base,
+        run_id="daily-002",
+        generated_at=datetime(2026, 9, 5, 10, tzinfo=UTC),
+        output_path=tmp_path / "second" / "result",
+    )
+    second = ResultArtifactPublisher().publish_backtest(
+        second_context, result, OverwritePolicy.ERROR
+    )
+    for name in ArtifactReader().open(first.path).verified_files:
+        assert (first.path / name).read_bytes() == (second.path / name).read_bytes(), name

@@ -1,7 +1,9 @@
 from datetime import date
 from decimal import Decimal
 
-from xqatexp.backtest.fees import FeeModel
+import pytest
+
+from xqatexp.backtest.fees import FeeModel, FeeRates
 from xqatexp.domain.enums import AssetType, OrderSide
 
 
@@ -39,3 +41,14 @@ def test_historical_equity_fee_boundaries_are_date_effective() -> None:
     assert model.calculate(
         AssetType.A_SHARE, OrderSide.SELL, Decimal("1000"), date(2022, 4, 28)
     ).total == Decimal("6.02")
+
+
+def test_negative_gross_and_uncovered_historical_schedule_are_rejected() -> None:
+    with pytest.raises(ValueError, match="negative gross"):
+        FeeModel.default().calculate(
+            AssetType.A_SHARE, OrderSide.BUY, Decimal("-1"), date(2026, 1, 1)
+        )
+    rates = FeeRates(Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0"))
+    model = FeeModel(rates, rates, equity_history=((date(2026, 1, 2), rates),))
+    with pytest.raises(ValueError, match="does not cover"):
+        model.calculate(AssetType.A_SHARE, OrderSide.BUY, Decimal("1"), date(2026, 1, 1))

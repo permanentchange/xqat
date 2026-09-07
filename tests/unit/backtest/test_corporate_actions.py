@@ -68,3 +68,37 @@ def test_held_rights_issue_is_not_silently_ignored() -> None:
     )
     with pytest.raises(ValueError, match="BACKTEST_CORPORATE_ACTION_UNSUPPORTED"):
         CorporateActionProcessor().record_entitlement(account, action)
+
+
+def test_fractional_distribution_and_sellable_split_are_rejected() -> None:
+    processor = CorporateActionProcessor()
+    account = SimulatedAccount(Decimal("0"), {"600000.SH": 3}, {"600000.SH": 2})
+    fractional_stock = DividendAction(
+        "stock",
+        "600000.SH",
+        date(2026, 6, 1),
+        date(2026, 6, 2),
+        date(2026, 6, 3),
+        date(2026, 6, 4),
+        Decimal("0"),
+        Decimal("0.5"),
+    )
+    with pytest.raises(ValueError, match="fractional distribution"):
+        processor.record_entitlement(account, fractional_stock)
+
+    fractional_sellable = DividendAction(
+        "split",
+        "600000.SH",
+        date(2026, 6, 1),
+        date(2026, 6, 2),
+        date(2026, 6, 3),
+        date(2026, 6, 4),
+        Decimal("0"),
+        Decimal("0"),
+        action_type="SPLIT",
+        split_ratio=Decimal("0.5"),
+    )
+    account.positions["600000.SH"] = 4
+    account.sellable_quantities["600000.SH"] = 3
+    with pytest.raises(ValueError, match="fractional sellable split"):
+        processor.record_entitlement(account, fractional_sellable)

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import os
+import shutil
+import tempfile
 from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from datetime import date
 from pathlib import Path
 from typing import Any, cast
@@ -14,7 +18,21 @@ from xqatexp.research.tables import TABLE_NAMES, ResearchCheckService
 
 
 class ResearchAccessError(ValueError):
-    pass
+    """A restricted research view rejected an unsafe or unavailable query."""
+
+
+_MINIMUM_TEMP_FREE_BYTES = 1024**3
+
+
+def _remove_session_temp(path: Path, parent: Path) -> None:
+    """Remove exactly one session-owned temporary directory."""
+    if path.parent != parent or not path.name.startswith(".xqatexp-tmp-"):
+        raise ResearchAccessError("ARTIFACT_TEMP_CLEANUP_FAILED: unsafe temporary path")
+    if path.exists():
+        try:
+            shutil.rmtree(path)
+        except OSError as exc:
+            raise ResearchAccessError(f"ARTIFACT_TEMP_CLEANUP_FAILED: {path.name}") from exc
 
 
 def _rows(cursor: duckdb.DuckDBPyConnection) -> list[dict[str, Any]]:
@@ -28,28 +46,81 @@ def _count(cursor: duckdb.DuckDBPyConnection) -> int:
 
 
 class ResearchSession:
-    def __init__(self, path: Path, declaration: StrategyDeclaration) -> None:
+    def __init__(
+        self,
+        path: Path,
+        declaration: StrategyDeclaration,
+        *,
+        temporary_parent: Path | None = None,
+    ) -> None:
         report = ResearchCheckService().check(path)
         if not report.valid:
             raise ResearchAccessError(f"DATA_INPUT_CORRUPT: {','.join(report.issue_codes)}")
         opened = ArtifactReader().open(path)
-        self._connection = duckdb.connect(":memory:")
-        for name in TABLE_NAMES:
-            relation = self._connection.read_parquet(str(opened.path / f"tables/{name}.parquet"))
-            relation.create_view(name)
+        parent = (temporary_parent or path.parent).resolve()
+        parent.mkdir(parents=True, exist_ok=True)
+        if shutil.disk_usage(parent).free < _MINIMUM_TEMP_FREE_BYTES:
+            raise ResearchAccessError(
+                "ARTIFACT_RESOURCE_INSUFFICIENT: temporary storage has less than 1GB free"
+            )
+        self._temporary_parent = parent
+        self._temporary_directory = Path(
+            tempfile.mkdtemp(prefix=".xqatexp-tmp-", dir=parent)
+        ).resolve()
+        connection: duckdb.DuckDBPyConnection | None = None
+        try:
+            connection = duckdb.connect(":memory:")
+            self._connection = connection
+            self._connection.execute("SET memory_limit='1GB'")
+            self._connection.execute(f"SET threads={max(1, min(4, os.cpu_count() or 1))}")
+            escaped_temp = self._temporary_directory.as_posix().replace("'", "''")
+            self._connection.execute(f"SET temp_directory='{escaped_temp}'")
+            for name in TABLE_NAMES:
+                relation = self._connection.read_parquet(
+                    str(opened.path / f"tables/{name}.parquet")
+                )
+                relation.create_view(name)
+        except BaseException:
+            if connection is not None:
+                with suppress(BaseException):
+                    connection.close()
+            with suppress(ResearchAccessError):
+                _remove_session_temp(self._temporary_directory, self._temporary_parent)
+            raise
         self._declaration = declaration
         self.closed = False
 
     def __enter__(self) -> ResearchSession:
         return self
 
-    def __exit__(self, *_: object) -> None:
-        self.close()
+    def __exit__(
+        self,
+        _exc_type: object,
+        exc_value: BaseException | None,
+        _traceback: object,
+    ) -> None:
+        if exc_value is None:
+            self.close()
+        else:
+            with suppress(BaseException):
+                self.close()
 
     def close(self) -> None:
-        if not self.closed:
+        if self.closed:
+            return
+        self.closed = True
+        close_error: BaseException | None = None
+        try:
             self._connection.close()
-            self.closed = True
+        except BaseException as exc:
+            close_error = exc
+        try:
+            _remove_session_temp(self._temporary_directory, self._temporary_parent)
+        except ResearchAccessError:
+            if close_error is None:
+                raise
+        if close_error is not None:
+            raise close_error
 
     def view(self, decision_date: date) -> ResearchDataViewImpl:
         if self.closed:

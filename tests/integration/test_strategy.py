@@ -3,9 +3,12 @@ from __future__ import annotations
 from datetime import date, timedelta
 from decimal import Decimal
 
+import pytest
+
 from xqatexp.domain.contracts import SecuritySnapshot
 from xqatexp.domain.enums import AssetType, MarketRegime
 from xqatexp.strategy.declaration import ETF_FACTOR_IDS
+from xqatexp.strategy.drawdown import OverlayLevel
 from xqatexp.strategy.weekly_strategy import WeeklyMarketGuardRankStrategy
 
 
@@ -164,3 +167,53 @@ def test_enabled_custom_factor_changes_real_strategy_ranking() -> None:
     parameters["custom_factor_weight"] = Decimal("0.20")
     target = WeeklyMarketGuardRankStrategy(parameters).generate_target(view, _Custom(), parameters)
     assert target.positions[0].security_id == "600001.SH"
+
+
+def test_strategy_rejects_missing_warmup_regime_and_custom_inputs() -> None:
+    parameters = _parameters()
+    short = _View()
+    short.days = short.days[:312]
+    short.decision_date = short.days[-1]
+    with pytest.raises(ValueError, match="STRATEGY_WARMUP_INSUFFICIENT"):
+        WeeklyMarketGuardRankStrategy(parameters).generate_target(short, None, parameters)
+
+    view = _View()
+    missing_regime = view.slice(view.decision_date)
+    missing_regime.system_factors = lambda _factor_ids, _security_ids: ()
+    with pytest.raises(ValueError, match="ETF regime inputs"):
+        WeeklyMarketGuardRankStrategy(parameters)._base_selection(
+            missing_regime, "510300.SH", {}, None, parameters
+        )
+
+    parameters["custom_factor_name"] = "quality_score"
+    parameters["custom_factor_weight"] = Decimal("0.20")
+    with pytest.raises(ValueError, match="custom factor is required"):
+        WeeklyMarketGuardRankStrategy(parameters)._base_selection(
+            view.slice(view.decision_date), "510300.SH", {}, None, parameters
+        )
+
+
+def test_strategy_overlay_drift_and_calendar_fallback_edges() -> None:
+    strategy = WeeklyMarketGuardRankStrategy(_parameters())
+    assert strategy._apply_overlay(
+        OverlayLevel.DEFENSIVE, Decimal("0.05"), 10, Decimal("0.30")
+    ) == (Decimal("0"), Decimal("0.10"), Decimal("0.90"))
+    assert strategy._apply_overlay(OverlayLevel.CAUTION, Decimal("0.05"), 0, Decimal("0.30")) == (
+        Decimal("0"),
+        Decimal("0.20"),
+        Decimal("0.80"),
+    )
+
+    view = _View().slice(_View().decision_date)
+    view.history = lambda *_args: ()
+    assert strategy._drift(
+        view,
+        {"CASH": Decimal("20"), "600000.SH": Decimal("80")},
+        date(2026, 9, 4),
+        date(2026, 9, 7),
+    ) == {"CASH": Decimal("20"), "600000.SH": Decimal("80")}
+
+    class WeekdayOnly:
+        pass
+
+    assert strategy._next_day(WeekdayOnly(), date(2026, 9, 4)) == date(2026, 9, 7)

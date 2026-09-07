@@ -41,6 +41,7 @@
 | `output_path` | absolute path | 是 | 用户明确指定。 |
 | `execution_assumptions` | object | 是 | 价格、滑点、费用与成交规则的最终值。 |
 | `generated_at` | datetime | 是 | 用例层注入 UTC 时间。 |
+| `analysis_periods` | array[AnalysisPeriod] | 否 | Backtest 可显式给出的阶段；每项为唯一非空 `label` 和含首尾的 `start/end`，必须位于回测区间内；允许相互重叠。 |
 
 ## 3. StrategyDeclaration 与 DataRequirement
 
@@ -71,22 +72,24 @@ class ResearchDataView(Protocol):
     def trading_days(self, start: date, end: date) -> Sequence[date]: ...
     def slice(self, as_of_date: date) -> ResearchDataSlice: ...
 
+
 class ResearchDataSlice(Protocol):
     @property
     def as_of_date(self) -> date: ...
     def universe(self) -> Sequence[SecuritySnapshot]: ...
-    def history(self, security_ids: Sequence[str], fields: Sequence[str],
-                start: date, end: date) -> Table: ...
-    def system_factors(self, factor_ids: Sequence[str],
-                       security_ids: Sequence[str]) -> Table: ...
-    def benchmark_history(self, fields: Sequence[str],
-                          start: date, end: date) -> Table: ...
+    def history(
+        self, security_ids: Sequence[str], fields: Sequence[str], start: date, end: date
+    ) -> Table: ...
+    def system_factors(self, factor_ids: Sequence[str], security_ids: Sequence[str]) -> Table: ...
+    def benchmark_history(self, fields: Sequence[str], start: date, end: date) -> Table: ...
+
 
 class CustomFactorView(Protocol):
     @property
     def decision_date(self) -> date: ...
-    def values_at(self, factor_date: date, factor_ids: Sequence[str],
-                  security_ids: Sequence[str]) -> Table: ...
+    def values_at(
+        self, factor_date: date, factor_ids: Sequence[str], security_ids: Sequence[str]
+    ) -> Table: ...
 ```
 
 `slice(H)` 必须满足 `earliest_date <= H <= decision_date`，否则拒绝。Slice 的 `universe()`、`system_factors()` 和全部历史查询都必须在内部强制业务日期不晚于 H、版本 `available_from <= H`；`history(..., end)` 还必须拒绝 `end > H`。这条约束也适用于后来修订的财务记录：H 日 Slice 只能看到 H 日当时已经公开的版本。
@@ -182,25 +185,30 @@ class CustomFactorView(Protocol):
 ```python
 class Strategy(Protocol):
     declaration: StrategyDeclaration
-    def generate_target(self, research: ResearchDataView,
-                        custom: CustomFactorView,
-                        parameters: Mapping[str, object]) -> TargetPortfolio: ...
+
+    def generate_target(
+        self, research: ResearchDataView, custom: CustomFactorView, parameters: Mapping[str, object]
+    ) -> TargetPortfolio: ...
+
 
 class BacktestService(Protocol):
     def run(self, context: ResolvedRunContext) -> BacktestResult: ...
 
+
 class DailyRunService(Protocol):
     def generate_target(self, context: ResolvedRunContext) -> TargetPortfolio: ...
 
+
 class DailyAdviceService(Protocol):
-    def generate(self, context: ResolvedRunContext,
-                 target: TargetPortfolio,
-                 account: AccountSnapshot | None) -> TradeAdvice: ...
+    def generate(
+        self, context: ResolvedRunContext, target: TargetPortfolio, account: AccountSnapshot | None
+    ) -> TradeAdvice: ...
+
 
 class ArtifactPublisher(Protocol):
-    def publish(self, output_path: Path,
-                payload: StructuredResult,
-                overwrite: OverwritePolicy) -> PublishedArtifact: ...
+    def publish(
+        self, output_path: Path, payload: StructuredResult, overwrite: OverwritePolicy
+    ) -> PublishedArtifact: ...
 ```
 
 `BacktestResult`、`TradeAdvice` 和其他 `StructuredResult` 都由对应领域主体、`issues`、`limitations` 和生成上下文组成；`PublishedArtifact` 只返回正式路径、Manifest 摘要和文件摘要。`RunFailure` 只包含 ERROR Issue、脱敏上下文和建议动作，不携带伪成功领域结果。

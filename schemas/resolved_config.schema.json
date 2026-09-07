@@ -14,10 +14,22 @@
     "decision_date": { "type": ["string", "null"], "format": "date" },
     "start_date": { "type": ["string", "null"], "format": "date" },
     "end_date": { "type": ["string", "null"], "format": "date" },
+    "analysis_periods": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["label", "start_date", "end_date"],
+        "properties": {
+          "label": { "type": "string", "minLength": 1 },
+          "start_date": { "type": "string", "format": "date" },
+          "end_date": { "type": "string", "format": "date" }
+        }
+      }
+    },
     "account_input": { "type": ["object", "null"] },
     "previous_target_input": { "type": ["object", "null"] },
     "output_alias": { "type": "string", "minLength": 1 },
     "execution_assumptions": { "type": "object" }
   }
 }
-

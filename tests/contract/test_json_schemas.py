@@ -93,6 +93,28 @@ def test_registry_loads_every_json_contract_from_disk() -> None:
         assert registry.load_json_schema(schema_id)["type"] == "object"
 
 
+def test_resolved_config_1_0_accepts_legacy_value_without_analysis_periods() -> None:
+    """A minor feature must not invalidate already published schema 1.0 values."""
+    value = {
+        "schema_version": "1.0",
+        "mode": "BACKTEST",
+        "strategy_id": "weekly_market_guard_rank_v1",
+        "strategy_version": "1.0.0",
+        "parameters": {},
+        "research_input": {},
+        "custom_factor_inputs": [],
+        "decision_date": None,
+        "start_date": "2025-01-02",
+        "end_date": "2025-12-31",
+        "account_input": None,
+        "previous_target_input": None,
+        "output_alias": "result",
+        "execution_assumptions": {},
+    }
+
+    _registry().validate_json("resolved_config", value)
+
+
 def test_target_schema_requires_rolling_drawdown_metadata() -> None:
     """Catches an old target schema that cannot identify the drawdown window."""
     value = {

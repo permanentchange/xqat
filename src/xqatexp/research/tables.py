@@ -38,6 +38,7 @@ from xqatexp.research.preparation import (
     next_open_date,
     research_price,
 )
+from xqatexp.security import validate_disjoint_paths
 
 TABLE_NAMES = (
     "security_master",
@@ -202,6 +203,10 @@ class ResearchBuilder:
         config: ResearchBuildConfig,
         output: Path,
     ) -> PublishedArtifact:
+        validate_disjoint_paths(
+            {f"raw_root[{index}]": path for index, path in enumerate(raw_roots)},
+            {"output": output},
+        )
         if config.start_date > config.end_date:
             raise ValueError("CONFIG_VALUE_INVALID: start_date is after end_date")
         raw, inputs = self._load_raw(raw_roots)
@@ -215,6 +220,9 @@ class ResearchBuilder:
         config: ResearchBuildConfig,
         output: Path,
     ) -> PublishedArtifact:
+        direct_inputs = {"base": base}
+        direct_inputs.update({f"raw_root[{index}]": path for index, path in enumerate(raw_roots)})
+        validate_disjoint_paths(direct_inputs, {"output": output})
         opened = ArtifactReader().open(base)
         base_sha = hashlib.sha256((opened.path / "manifest.json").read_bytes()).hexdigest()
         if raw_roots:

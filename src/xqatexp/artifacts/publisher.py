@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import uuid
 from collections.abc import Callable
@@ -14,7 +15,7 @@ from xqatexp.domain.enums import OverwritePolicy
 
 
 class ArtifactPublishError(RuntimeError):
-    pass
+    """An artifact could not be safely and completely published."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,7 +35,16 @@ class ArtifactPublisher:
         output_path: Path,
         overwrite: OverwritePolicy,
     ) -> PublishedArtifact:
-        target = output_path.resolve()
+        lexical_target = Path(os.path.abspath(output_path))
+        for component in (lexical_target, *lexical_target.parents):
+            is_junction = getattr(component, "is_junction", lambda: False)()
+            if component.is_symlink() or is_junction:
+                raise ArtifactPublishError(
+                    "ARTIFACT_UNSAFE_OUTPUT_PATH: symlink or junction in output path"
+                )
+        target = lexical_target.resolve()
+        if target == Path(target.anchor) or target == Path.cwd().resolve():
+            raise ArtifactPublishError(f"ARTIFACT_UNSAFE_OUTPUT_PATH: {target}")
         parent = target.parent
         parent.mkdir(parents=True, exist_ok=True)
         self._recover(target)
@@ -42,6 +52,8 @@ class ArtifactPublisher:
             raise ArtifactPublishError(f"ARTIFACT_OUTPUT_EXISTS: {target.name}")
         if target.exists() and overwrite is OverwritePolicy.SKIP:
             return self._published(target)
+        if shutil.disk_usage(parent).free < 1024**3:
+            raise ArtifactPublishError("ARTIFACT_RESOURCE_INSUFFICIENT: less than 1GB free")
 
         run_suffix = uuid.uuid4().hex
         staging = parent / f".{target.name}.staging-{run_suffix}"
@@ -51,6 +63,13 @@ class ArtifactPublisher:
         try:
             staging_builder(staging)
             self._reader.open(staging)
+            staging_bytes = sum(
+                item.stat().st_size for item in staging.rglob("*") if item.is_file()
+            )
+            if shutil.disk_usage(parent).free < staging_bytes:
+                raise ArtifactPublishError(
+                    "ARTIFACT_RESOURCE_INSUFFICIENT: less than one additional output size free"
+                )
             if not target.exists():
                 staging.rename(target)
                 return self._published(target)
@@ -113,11 +132,26 @@ class ArtifactPublisher:
                 if not target.exists() and backup_valid:
                     backup.rename(target)
                     target_valid = True
+                elif target.exists() and backup_valid and not target_valid:
+                    corrupt = target.with_name(f".{target.name}.corrupt-{uuid.uuid4().hex}")
+                    target.rename(corrupt)
+                    try:
+                        backup.rename(target)
+                    except BaseException:
+                        if not target.exists() and corrupt.exists():
+                            corrupt.rename(target)
+                        raise
+                    if not self._is_valid(target):
+                        raise ArtifactPublishError(
+                            "ARTIFACT_PUBLISH_FAILED: restored backup failed verification"
+                        )
+                    self._remove_path(corrupt)
+                    target_valid = True
                 if target_valid:
                     if backup.exists():
-                        shutil.rmtree(backup)
+                        self._remove_path(backup)
                     if staging.exists():
-                        shutil.rmtree(staging)
+                        self._remove_path(staging)
                     record_path.unlink()
             except (KeyError, OSError, ValueError, json.JSONDecodeError) as error:
                 raise ArtifactPublishError(
@@ -139,3 +173,10 @@ class ArtifactPublisher:
         except Exception:
             return False
         return True
+
+    @staticmethod
+    def _remove_path(path: Path) -> None:
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+        else:
+            path.unlink(missing_ok=True)

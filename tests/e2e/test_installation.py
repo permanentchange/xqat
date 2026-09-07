@@ -19,6 +19,14 @@ def test_runtime_lock_is_hashed_and_wheel_includes_schemas() -> None:
     assert len(re.findall(r"--hash=sha256:[0-9a-f]{64}", lock)) >= len(requirement_starts)
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert pyproject["tool"]["setuptools"]["data-files"]["schemas"] == ["schemas/*.json"]
+    assert pyproject["build-system"]["requires"] == [
+        "setuptools==84.0.0",
+        "wheel==0.48.0",
+    ]
+    build_lock = (ROOT / "requirements-build.lock").read_text(encoding="utf-8")
+    assert "setuptools==84.0.0" in build_lock
+    assert "wheel==0.48.0" in build_lock
+    assert len(re.findall(r"--hash=sha256:[0-9a-f]{64}", build_lock)) == 6
 
 
 def test_readme_documents_every_public_command_and_secret_boundary() -> None:
@@ -39,3 +47,4 @@ def test_readme_documents_every_public_command_and_secret_boundary() -> None:
         assert command in readme
     assert "TUSHARE_TOKEN" in readme
     assert "<在本机填写你的 Token>" in readme
+    assert "requirements-build.lock" in readme

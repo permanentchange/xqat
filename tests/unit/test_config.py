@@ -76,6 +76,83 @@ def test_cli_business_value_overrides_toml_and_defaults_are_materialized(tmp_pat
     assert context.end_date == date(2025, 12, 31)
 
 
+@pytest.mark.parametrize("relative_output", ("research", "research/nested", "."))
+def test_config_rejects_output_that_overlaps_an_input(tmp_path: Path, relative_output: str) -> None:
+    config_path, _ = _write_config(tmp_path)
+    with pytest.raises(Exception, match="CONFIG_PATH_CONFLICT"):
+        _config().resolve_config(
+            {"output": tmp_path / relative_output},
+            config_path,
+            run_id="01991a6a-4c00-7000-8000-000000000002",
+            generated_at=datetime(2026, 9, 6, tzinfo=UTC),
+        )
+
+
+def test_backtest_analysis_periods_are_explicit_validated_and_ordered(tmp_path: Path) -> None:
+    config_path, _ = _write_config(tmp_path)
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8").replace(
+            "\n[strategy]",
+            """
+analysis_periods = [
+  { label = "second-half", start_date = "2025-07-01", end_date = "2025-12-31" },
+  { label = "first-half", start_date = "2025-01-02", end_date = "2025-06-30" },
+]
+\n[strategy]""",
+        ),
+        encoding="utf-8",
+    )
+
+    context = _config().resolve_config(
+        {},
+        config_path,
+        run_id="01991a6a-4c00-7000-8000-000000000002",
+        generated_at=datetime(2026, 9, 6, tzinfo=UTC),
+    )
+
+    assert [(item.label, item.start, item.end) for item in context.analysis_periods] == [
+        ("first-half", date(2025, 1, 2), date(2025, 6, 30)),
+        ("second-half", date(2025, 7, 1), date(2025, 12, 31)),
+    ]
+
+    daily_context = _config().resolve_config(
+        {"mode": "DAILY_TARGET", "decision_date": date(2025, 12, 31)},
+        config_path,
+        run_id="01991a6a-4c00-7000-8000-000000000003",
+        generated_at=datetime(2026, 9, 6, tzinfo=UTC),
+    )
+    assert daily_context.analysis_periods == ()
+
+
+@pytest.mark.parametrize(
+    "periods",
+    (
+        '[{ label = "bad", start_date = "2024-12-31", end_date = "2025-02-01" }]',
+        '[{ label = "same", start_date = "2025-01-02", end_date = "2025-02-01" },'
+        ' { label = "same", start_date = "2025-03-01", end_date = "2025-04-01" }]',
+        '[{ label = "bad", start_date = "2025-02-01", end_date = "2025-01-02" }]',
+        '[{ label = "=FORMULA", start_date = "2025-01-02", end_date = "2025-02-01" }]',
+    ),
+)
+def test_invalid_analysis_periods_fail_during_config_resolution(
+    tmp_path: Path, periods: str
+) -> None:
+    config_path, _ = _write_config(tmp_path)
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8").replace(
+            "\n[strategy]", f"\nanalysis_periods = {periods}\n\n[strategy]"
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(Exception, match="analysis_periods"):
+        _config().resolve_config(
+            {},
+            config_path,
+            run_id="01991a6a-4c00-7000-8000-000000000002",
+            generated_at=datetime(2026, 9, 6, tzinfo=UTC),
+        )
+
+
 @pytest.mark.parametrize(
     ("extra", "message"),
     [

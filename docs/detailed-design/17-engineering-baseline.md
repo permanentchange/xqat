@@ -26,7 +26,7 @@
 
 不使用 pandas 作为领域合同，不使用 Tushare SDK 的本地 Token 保存功能；客户端直接调用官方 HTTPS API，使原始字段和响应可忠实保存。不得增加 Web 框架、ORM、任务队列、持久数据库或交互式 UI。
 
-开发依赖：`pytest`、`pytest-cov`、`hypothesis`、`ruff`、`mypy`、`pip-tools`。直接依赖在 `pyproject.toml` 声明兼容范围，并用 `pip-compile` 生成带哈希的 `requirements.lock` 和 `requirements-dev.lock`；代码和锁文件变更必须一起验证。
+开发依赖：`pytest`、`pytest-cov`、`hypothesis`、`ruff`、`mypy`、`pip-tools`。直接依赖在 `pyproject.toml` 声明兼容范围，并用 `pip-compile` 生成带哈希的 `requirements.lock`、`requirements-build.lock` 和 `requirements-dev.lock`；构建后端版本还必须与 `pyproject.toml` 的 `[build-system]` 精确一致，代码和锁文件变更必须一起验证。
 
 ## 3. 包和文件结构
 
@@ -34,6 +34,7 @@
 XQAT/
   pyproject.toml
   requirements.lock
+  requirements-build.lock
   requirements-dev.lock
   README.md
   src/xqatexp/
@@ -125,14 +126,14 @@ XQAT/
 
 | 配置 | 默认 | 约束 |
 |---|---:|---|
-| `duckdb_memory_limit` | `1GB` | 可配置，最低 256MB。 |
-| `duckdb_threads` | `min(4, logical_cpu_count)` | 至少 1，结果必须与线程数无关。 |
+| `duckdb_memory_limit` | `1GB` | MVP 固定上限；不足时明确失败。 |
+| `duckdb_threads` | `min(4, logical_cpu_count)` | MVP 固定算法且至少 1，结果必须与线程数无关。 |
 | `http_timeout_seconds` | 30 | 5–120。 |
 | `provider_max_attempts` | 5 | 1–8。 |
 | `provider_requests_per_minute` | 200 | 不超过能力探测/用户配置允许值。 |
 | `parquet_compression` | `zstd` | MVP 固定。 |
 
-DuckDB 临时目录位于用户显式工作目录或输出父目录下的 `.xqatexp-tmp/<run_id>`，不能位于系统未知共享目录。运行前要求可用空间至少为预计新输出的 2 倍；估计无法取得时只做可用空间绝对下限 1GB 检查并写 limitation，不缩小业务范围。
+DuckDB 临时目录位于用户显式输出父目录下的唯一 `.xqatexp-tmp-<random>` 目录，不能位于系统未知共享目录；ResearchSession 正常或异常退出时只清理该精确目录。运行前要求可用空间至少为预计新输出的 2 倍；估计无法取得时做可用空间绝对下限 1GB 检查，不缩小业务范围。
 
 ## 7. Windows 原子发布算法
 
@@ -168,7 +169,7 @@ python -m xqatexp self-check --offline
 真实集成使用单独标记和显式开关：
 
 ```text
-python -m pytest -m live_tushare --run-live-tushare -q
+python -m pytest -m live_tushare --live-tushare -q
 ```
 
 未提供 Token 时该命令必须以明确的 `SECURITY_SECRET_MISSING` 失败，不伪装为通过或普通跳过。普通离线测试不得访问网络。

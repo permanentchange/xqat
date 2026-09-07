@@ -35,6 +35,13 @@ class CustomFactorInput:
 
 
 @dataclass(frozen=True, slots=True)
+class AnalysisPeriod:
+    label: str
+    start: date
+    end: date
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedRunContext:
     run_id: str
     mode: RunMode
@@ -52,6 +59,7 @@ class ResolvedRunContext:
     end_date: date | None = None
     account_snapshot_path: Path | None = None
     previous_target_path: Path | None = None
+    analysis_periods: tuple[AnalysisPeriod, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

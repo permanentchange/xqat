@@ -20,21 +20,27 @@ from xqatexp.artifacts.readers import ArtifactReader
 from xqatexp.config import resolve_config
 from xqatexp.domain.contracts import CustomFactorInput
 from xqatexp.domain.enums import OverwritePolicy
+from xqatexp.operations.logging import JsonlEventLogger
 from xqatexp.providers.tushare.capability import CapabilityProbe
-from xqatexp.providers.tushare.client import TushareClient, TushareError
+from xqatexp.providers.tushare.client import TokenBucket, TushareClient, TushareError
 from xqatexp.providers.tushare.raw import FetchRequest, RawCheckService, RawFetchService
 from xqatexp.providers.tushare.registry import dataset_ids
 from xqatexp.reporting.failure import FailureDiagnosticPublisher
 from xqatexp.reporting.readers import load_target
 from xqatexp.research.custom_factors import CustomFactorCheckService
 from xqatexp.research.tables import ResearchBuildConfig, ResearchBuilder, ResearchCheckService
-from xqatexp.security import SecurityError, load_tushare_token
+from xqatexp.security import SecurityError, load_tushare_token, validate_disjoint_paths
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="xqatexp",
         description="Local A-share quantitative research and decision tool.",
+    )
+    parser.add_argument(
+        "--log-file",
+        type=Path,
+        help="Append redacted JSONL operational events to this explicit path.",
     )
     commands = parser.add_subparsers(dest="command", metavar="COMMAND")
     self_check = commands.add_parser("self-check", help="Validate the local installation.")
@@ -123,9 +129,112 @@ def _add_run_arguments(parser: argparse.ArgumentParser, *, dates: str) -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    try:
+        _validate_cli_path_graph(args)
+    except RuntimeError as error:
+        print(f"CONFIG_PATH_INVALID: {error}", file=sys.stderr)
+        return 2
+    except (OSError, ValueError) as error:
+        print(str(error), file=sys.stderr)
+        return 2
+    run_id = str(uuid.uuid4())
+    generated_at = datetime.now(UTC)
+    args._run_id = run_id
+    args._generated_at = generated_at
+    logger = JsonlEventLogger(args.log_file, run_id) if args.log_file is not None else None
+    if logger is not None:
+        try:
+            logger.emit(
+                level="INFO",
+                stage="CLI",
+                event="COMMAND_STARTED",
+                message="command started",
+                context={"command": args.command},
+            )
+        except OSError as error:
+            print(f"LOG_WRITE_FAILED: {error}", file=sys.stderr)
+            return 4
+    try:
+        exit_code = _dispatch(parser, args)
+    except Exception:
+        print(f"INTERNAL_ERROR correlation_id={run_id}", file=sys.stderr)
+        exit_code = 10
+    if logger is not None:
+        try:
+            logger.emit(
+                level="INFO" if exit_code == 0 else "ERROR",
+                stage="CLI",
+                event="COMMAND_COMPLETED",
+                message="command completed",
+                context={"command": args.command, "exit_code": exit_code},
+            )
+        except OSError as error:
+            print(f"LOG_WRITE_FAILED: {error}", file=sys.stderr)
+            return 4
+    return exit_code
+
+
+def _validate_cli_path_graph(args: argparse.Namespace) -> None:
+    inputs: dict[str, Path] = {}
+    outputs: dict[str, Path] = {}
+    for name in (
+        "config",
+        "target",
+        "account",
+        "previous_target",
+        "input",
+        "file",
+        "research",
+        "base",
+    ):
+        value = getattr(args, name, None)
+        if isinstance(value, Path):
+            inputs[name] = value
+    for name in ("raw_root", "custom_factor"):
+        values = getattr(args, name, ())
+        if isinstance(values, list):
+            for index, value in enumerate(values):
+                if isinstance(value, Path):
+                    inputs[f"{name}[{index}]"] = value
+    for name in ("output", "report", "failure_report", "log_file"):
+        value = getattr(args, name, None)
+        if isinstance(value, Path):
+            outputs[name] = value
+    config_path = getattr(args, "config", None)
+    if isinstance(config_path, Path) and config_path.is_file():
+        try:
+            config_value = tomllib.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, tomllib.TOMLDecodeError):
+            config_value = {}
+        for name in ("research_artifact", "account_snapshot", "previous_target"):
+            value = config_value.get(name)
+            if value:
+                inputs[f"config.{name}"] = Path(str(value))
+        custom_values = config_value.get("custom_factors", [])
+        if isinstance(custom_values, list):
+            for index, value in enumerate(custom_values):
+                inputs[f"config.custom_factors[{index}]"] = Path(str(value))
+    validate_disjoint_paths(inputs, outputs)
+
+
+def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     if args.command is None:
         parser.print_help()
         return 0
+    subcommand_names = {
+        "data": "data_command",
+        "factor": "factor_command",
+        "backtest": "backtest_command",
+        "daily": "daily_command",
+        "result": "result_command",
+    }
+    subcommand_name = subcommand_names.get(args.command)
+    if subcommand_name is not None and getattr(args, subcommand_name, None) is None:
+        print(
+            f"CONFIG_COMMAND_REQUIRED: choose a subcommand for {args.command}",
+            file=sys.stderr,
+        )
+        return 2
     if args.command == "self-check":
         try:
             result = SelfCheckService().run(offline=args.offline)
@@ -142,8 +251,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_strategy(args)
     if args.command == "result" and args.result_command == "show":
         return _show_result(args.input, args.format)
-    print(f"{args.command} command is not implemented yet", file=sys.stderr)
-    return 10
+    print(f"CONFIG_COMMAND_REQUIRED: choose a subcommand for {args.command}", file=sys.stderr)
+    return 2
 
 
 def _run_factor(args: argparse.Namespace) -> int:
@@ -172,8 +281,8 @@ def _run_factor(args: argparse.Namespace) -> int:
 
 
 def _run_strategy(args: argparse.Namespace) -> int:
-    now = datetime.now(UTC)
-    run_id = str(uuid.uuid4())
+    now = args._generated_at
+    run_id = args._run_id
     try:
         if args.command == "backtest":
             cli_values = {
@@ -310,9 +419,9 @@ def _run_data(args: argparse.Namespace) -> int:
         if args.data_command == "capabilities":
             token = load_tushare_token(os.environ)
             probe_date = args.trade_date or _previous_weekday(date.today()).strftime("%Y%m%d")
-            results = CapabilityProbe(TushareClient(token)).run(
-                dataset_ids(), trade_date=probe_date
-            )
+            results = CapabilityProbe(
+                TushareClient(token, rate_limiter=TokenBucket(calls_per_minute=200))
+            ).run(dataset_ids(), trade_date=probe_date)
             value = {
                 "schema_version": "1.0",
                 "provider": "tushare",
@@ -343,7 +452,9 @@ def _run_data(args: argparse.Namespace) -> int:
                 output_path=args.output,
                 existing_policy=OverwritePolicy(args.existing.upper()),
             )
-            published = RawFetchService(TushareClient(token)).fetch(request)
+            published = RawFetchService(
+                TushareClient(token, rate_limiter=TokenBucket(calls_per_minute=200))
+            ).fetch(request)
             print(f"RAW_WRITTEN output={published.path}")
             return 0
         if args.data_command == "check-raw":
@@ -399,7 +510,7 @@ def _run_data(args: argparse.Namespace) -> int:
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(str(error), file=sys.stderr)
         return 2
-    print("data command is not implemented yet", file=sys.stderr)
+    print("CONFIG_COMMAND_REQUIRED: choose a data subcommand", file=sys.stderr)
     return 10
 
 

@@ -7,6 +7,9 @@ start_date = "2026-08-31"
 end_date = "2026-09-07"
 decision_date = "2026-09-04"
 output = ".example-work/result-placeholder"
+analysis_periods = [
+  { label = "example-week", start_date = "2026-08-31", end_date = "2026-09-07" }
+]
 
 [strategy]
 csi300_etf_id = "510300.SH"

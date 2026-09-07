@@ -6,7 +6,7 @@ from xqatexp.domain.enums import AssetType
 
 
 class PortfolioValidationError(ValueError):
-    pass
+    """A target portfolio violates a cross-module portfolio invariant."""
 
 
 def validate_target(

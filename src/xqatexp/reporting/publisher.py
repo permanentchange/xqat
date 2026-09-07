@@ -19,6 +19,7 @@ from xqatexp.artifacts.schemas import SchemaRegistry
 from xqatexp.backtest.engine import BacktestResult
 from xqatexp.domain.contracts import (
     AccountSnapshot,
+    AnalysisPeriod,
     ExecutionRecord,
     ResolvedRunContext,
     TargetPortfolio,
@@ -149,7 +150,9 @@ class ResultArtifactPublisher:
             payloads: dict[str, bytes] = {
                 "resolved_config.json": canonical_json_bytes(config),
                 "metrics.json": canonical_json_bytes(metrics),
-                "period_metrics.csv": self._period_metrics_csv(metrics, result),
+                "period_metrics.csv": self._period_metrics_csv(
+                    metrics, result, context.analysis_periods
+                ),
                 "issues.json": canonical_json_bytes(issue_data),
                 "report.md": backtest_markdown(metrics, len(result.trades)).encode("utf-8"),
             }
@@ -459,7 +462,12 @@ class ResultArtifactPublisher:
         return best
 
     @classmethod
-    def _period_metrics_csv(cls, metrics: dict[str, object], result: BacktestResult) -> bytes:
+    def _period_metrics_csv(
+        cls,
+        metrics: dict[str, object],
+        result: BacktestResult,
+        analysis_periods: Sequence[AnalysisPeriod] = (),
+    ) -> bytes:
         columns = (
             "period_type",
             "period_label",
@@ -543,6 +551,55 @@ class ResultArtifactPublisher:
                     ),
                     "total_fees": sum((item.fees.total for item in trades), Decimal("0")),
                     "total_slippage_cost": period_slippage,
+                    "limitations": (
+                        "PERFORMANCE_INSUFFICIENT_SAMPLE"
+                        if performance is None
+                        else ";".join(performance.limitations)
+                    ),
+                }
+            )
+        for period in analysis_periods:
+            records = tuple(
+                item
+                for item in result.portfolio_daily
+                if period.start <= item.valuation_date <= period.end
+            )
+            points = tuple((item.valuation_date, item.nav) for item in records)
+            performance = (
+                PerformanceAnalyzer().analyze(points, risk_free_rate=Decimal("0"))
+                if len(points) >= 2
+                else None
+            )
+            trades = tuple(
+                item for item in result.trades if period.start <= item.execution_date <= period.end
+            )
+            rows.append(
+                {
+                    "period_type": "USER_DEFINED",
+                    "period_label": period.label,
+                    "start_date": points[0][0] if points else period.start,
+                    "end_date": points[-1][0] if points else period.end,
+                    "valuation_points": len(points),
+                    "return_intervals": max(0, len(points) - 1),
+                    "cumulative_return": None
+                    if performance is None
+                    else performance.cumulative_return,
+                    "annualized_return": None
+                    if performance is None
+                    else performance.annualized_return,
+                    "annualized_volatility": (
+                        None if performance is None else performance.annualized_volatility
+                    ),
+                    "max_drawdown": None if performance is None else performance.max_drawdown,
+                    "sharpe": None if performance is None else performance.sharpe,
+                    "calmar": None if performance is None else performance.calmar,
+                    "one_way_turnover": sum(
+                        (item.one_way_turnover for item in records), Decimal("0")
+                    ),
+                    "total_fees": sum((item.fees.total for item in trades), Decimal("0")),
+                    "total_slippage_cost": sum(
+                        (cls._slippage_cost(item) for item in trades), Decimal("0")
+                    ),
                     "limitations": (
                         "PERFORMANCE_INSUFFICIENT_SAMPLE"
                         if performance is None

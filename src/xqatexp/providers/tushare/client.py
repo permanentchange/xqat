@@ -12,15 +12,15 @@ from xqatexp.security import SecretValue
 
 
 class TushareError(RuntimeError):
-    pass
+    """The provider request failed after applying the client policy."""
 
 
 class TusharePermissionError(TushareError):
-    pass
+    """The provider rejected access to a requested interface."""
 
 
 class TushareSchemaError(TushareError):
-    pass
+    """The provider response violated the frozen response contract."""
 
 
 @dataclass(frozen=True, slots=True)

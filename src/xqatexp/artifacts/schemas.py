@@ -10,7 +10,7 @@ import pyarrow as pa
 
 
 class SchemaValidationError(ValueError):
-    pass
+    """A structured value does not conform to its versioned schema."""
 
 
 _SCHEMA_IDS = (

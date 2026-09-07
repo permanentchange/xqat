@@ -8,6 +8,7 @@ CLI 负责固定业务用例的参数接收、配置合并、运行前展示和�
 
 ```text
 xqatexp
+  [--log-file PATH]
   self-check
   data fetch
   data capabilities
@@ -44,6 +45,8 @@ xqatexp
 
 所有会发布正式结果的命令都要求显式 `--output`，可以来自 CLI 或配置文件，但解析后不得为空。
 
+可选全局参数 `--log-file PATH` 必须放在业务命令之前；它只追加 13 定义的脱敏 JSONL 运行事件。省略时不创建日志文件，终端仍输出稳定的结果或错误摘要。
+
 ## 3. 配置解析
 
 优先级固定为：
@@ -62,6 +65,9 @@ research_artifact = "D:/xqat/data/research/r20260808"
 start_date = "2018-01-01"
 end_date = "2025-12-31"
 output = "D:/xqat/results/run-001"
+analysis_periods = [
+  { label = "2024-H2", start_date = "2024-07-01", end_date = "2024-12-31" }
+]
 
 [strategy]
 rebalance_frequency = "WEEKLY"
@@ -89,6 +95,8 @@ dividend_tax_model = "PROVIDER_AFTER_TAX"
 TOML 空字符串 `custom_factor_name=""` 在规范化后等价于 null，且要求 `custom_factor_weight=0`。启用时因子文件必须通过 CLI 重复参数 `--custom-factor PATH` 或配置数组显式给出；文件名不能被自动发现。
 
 配置解析步骤：读取 TOML → 校验 Schema 版本 → 合并代码默认值 → 应用 CLI 显式值 → 交叉字段校验 → 解析绝对路径 → 计算输入摘要 → 生成 [ResolvedRunContext](01-shared-contracts.md#2-resolvedruncontext)。
+
+`analysis_periods` 仅在 Backtest 生效。每项必须只含 `label/start_date/end_date`，名称非空且全局唯一，并且不得以 `= + - @` 开头，日期段必须位于回测区间内。数组按起始日、结束日和名称规范排序；阶段可重叠，空数组表示只输出全期和自然年度。同一配置被 CLI 覆盖为 Daily 模式时，该数组规范化为空，避免把回测专用分析项带入每日结果。
 
 ## 4. 运行前展示
 

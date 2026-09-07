@@ -35,7 +35,11 @@ class StrategyWorkflowService:
         declaration = strategy_declaration(context.parameters)
         custom = self._custom(context, context.end_date)
         strategy = WeeklyMarketGuardRankStrategy(context.parameters)
-        with ResearchSession(context.research_artifact_path, declaration) as session:
+        with ResearchSession(
+            context.research_artifact_path,
+            declaration,
+            temporary_parent=context.output_path.parent,
+        ) as session:
             readiness = ReadinessChecker().check(
                 declaration, session.view(context.end_date), custom
             )
@@ -64,7 +68,11 @@ class StrategyWorkflowService:
             if context.previous_target_path is not None
             else None
         )
-        with ResearchSession(context.research_artifact_path, declaration) as session:
+        with ResearchSession(
+            context.research_artifact_path,
+            declaration,
+            temporary_parent=context.output_path.parent,
+        ) as session:
             view = session.view(context.decision_date)
             readiness = ReadinessChecker().check(declaration, view, custom)
             if not readiness.is_ready:
@@ -100,7 +108,11 @@ class StrategyWorkflowService:
         ids = {item.security_id for item in target.positions}
         if account is not None:
             ids.update(item.security_id for item in account.positions)
-        with ResearchSession(context.research_artifact_path, declaration) as session:
+        with ResearchSession(
+            context.research_artifact_path,
+            declaration,
+            temporary_parent=context.output_path.parent,
+        ) as session:
             rows = session.execution_rows(target.decision_date, sorted(ids))
         prices = {
             str(row["security_id"]): Decimal(str(row["close_raw"]))

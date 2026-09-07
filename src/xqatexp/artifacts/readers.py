@@ -11,7 +11,7 @@ from xqatexp.artifacts.schemas import SchemaRegistry
 
 
 class ArtifactReadError(ValueError):
-    pass
+    """An artifact is unsafe, incomplete, incompatible, or corrupt."""
 
 
 @dataclass(frozen=True, slots=True)

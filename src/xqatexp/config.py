@@ -9,12 +9,13 @@ from decimal import Decimal
 from pathlib import Path
 from typing import cast
 
-from xqatexp.domain.contracts import CustomFactorInput, ResolvedRunContext
+from xqatexp.domain.contracts import AnalysisPeriod, CustomFactorInput, ResolvedRunContext
 from xqatexp.domain.enums import RunMode
+from xqatexp.security import validate_disjoint_paths
 
 
 class ConfigError(ValueError):
-    pass
+    """A run configuration failed schema or cross-field validation."""
 
 
 _SECRET_KEY = re.compile(r"token|secret|password|credential|authorization", re.IGNORECASE)
@@ -33,6 +34,7 @@ _TOP_LEVEL = {
     "custom_factors",
     "strategy",
     "execution",
+    "analysis_periods",
 }
 
 _STRATEGY_DEFAULTS: dict[str, object] = {
@@ -265,6 +267,54 @@ def resolve_config(
         custom_inputs.append(
             CustomFactorInput(factor_path, hashlib.sha256(factor_path.read_bytes()).hexdigest())
         )
+    account_path = (
+        Path(str(raw["account_snapshot"])).resolve() if raw.get("account_snapshot") else None
+    )
+    previous_target_path = (
+        Path(str(raw["previous_target"])).resolve() if raw.get("previous_target") else None
+    )
+    path_inputs = {"research_artifact": research, "config": toml_path.resolve()}
+    path_inputs.update(
+        {f"custom_factor[{index}]": item.path for index, item in enumerate(custom_inputs)}
+    )
+    if account_path is not None:
+        path_inputs["account_snapshot"] = account_path
+    if previous_target_path is not None:
+        path_inputs["previous_target"] = previous_target_path
+    validate_disjoint_paths(path_inputs, {"output": output})
+    periods_raw = raw.get("analysis_periods", [])
+    if not isinstance(periods_raw, list):
+        raise ConfigError("CONFIG_SCHEMA_INVALID: analysis_periods must be an array")
+    analysis_periods: list[AnalysisPeriod] = []
+    labels: set[str] = set()
+    if mode is RunMode.BACKTEST:
+        for index, item in enumerate(periods_raw):
+            if not isinstance(item, Mapping) or set(item) != {
+                "label",
+                "start_date",
+                "end_date",
+            }:
+                raise ConfigError(
+                    f"CONFIG_SCHEMA_INVALID: analysis_periods[{index}] fields are invalid"
+                )
+            label = str(item["label"]).strip()
+            period_start = _date(item["start_date"], f"analysis_periods[{index}].start_date")
+            period_end = _date(item["end_date"], f"analysis_periods[{index}].end_date")
+            if not label or label in labels:
+                raise ConfigError("CONFIG_VALUE_INVALID: analysis_periods labels must be unique")
+            if label[0] in "=+-@":
+                raise ConfigError("CONFIG_VALUE_INVALID: analysis_periods labels must be CSV-safe")
+            if period_start is None or period_end is None or period_start > period_end:
+                raise ConfigError(
+                    "CONFIG_VALUE_INVALID: analysis_periods requires start_date <= end_date"
+                )
+            if start is None or end is None or period_start < start or period_end > end:
+                raise ConfigError(
+                    "CONFIG_VALUE_INVALID: analysis_periods must be within backtest range"
+                )
+            labels.add(label)
+            analysis_periods.append(AnalysisPeriod(label, period_start, period_end))
+    analysis_periods.sort(key=lambda item: (item.start, item.end, item.label))
     return ResolvedRunContext(
         run_id=run_id,
         mode=mode,
@@ -277,13 +327,10 @@ def resolve_config(
         decision_date=decision,
         start_date=start,
         end_date=end,
-        account_snapshot_path=(
-            Path(str(raw["account_snapshot"])).resolve() if raw.get("account_snapshot") else None
-        ),
-        previous_target_path=(
-            Path(str(raw["previous_target"])).resolve() if raw.get("previous_target") else None
-        ),
+        account_snapshot_path=account_path,
+        previous_target_path=previous_target_path,
         output_path=output,
         execution_assumptions=execution,
         generated_at=generated_at,
+        analysis_periods=tuple(analysis_periods),
     )

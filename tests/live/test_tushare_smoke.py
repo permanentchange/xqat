@@ -12,7 +12,10 @@ from xqatexp.security import load_tushare_token
 @pytest.mark.live_tushare
 def test_single_call_daily_mapping_and_permission() -> None:
     if not os.environ.get("TUSHARE_TOKEN", "").strip():
-        pytest.skip("SECURITY_SECRET_MISSING: TUSHARE_TOKEN is not in this process")
+        pytest.fail(
+            "SECURITY_SECRET_MISSING: TUSHARE_TOKEN is not in this process",
+            pytrace=False,
+        )
     spec = get_dataset("stock_daily")
     result = TushareClient(load_tushare_token(os.environ), max_attempts=1).query(
         spec.api_name,
