@@ -22,10 +22,11 @@ dependencies = [
 xqatexp = "xqatexp.cli:main"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src", "."]
+include = ["xqatexp*", "schemas*"]
 
-[tool.setuptools.data-files]
-"schemas" = ["schemas/*.json"]
+[tool.setuptools.package-data]
+schemas = ["*.json"]
 
 [tool.pytest.ini_options]
 addopts = "--strict-config --strict-markers"

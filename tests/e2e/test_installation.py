@@ -18,7 +18,7 @@ def test_runtime_lock_is_hashed_and_wheel_includes_schemas() -> None:
     assert all("==" in line and line.endswith("\\") for line in requirement_starts)
     assert len(re.findall(r"--hash=sha256:[0-9a-f]{64}", lock)) >= len(requirement_starts)
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    assert pyproject["tool"]["setuptools"]["data-files"]["schemas"] == ["schemas/*.json"]
+    assert pyproject["tool"]["setuptools"]["package-data"]["schemas"] == ["*.json"]
     assert pyproject["build-system"]["requires"] == [
         "setuptools==84.0.0",
         "wheel==0.48.0",

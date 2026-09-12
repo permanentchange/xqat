@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -328,7 +327,7 @@ class SchemaRegistry:
             self._schema_root = schema_root
         else:
             source_root = Path(__file__).resolve().parents[3] / "schemas"
-            installed_root = Path(sys.prefix) / "schemas"
+            installed_root = Path(__file__).resolve().parents[2] / "schemas"
             self._schema_root = source_root if source_root.is_dir() else installed_root
 
     @property
