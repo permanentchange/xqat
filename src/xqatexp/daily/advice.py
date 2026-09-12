@@ -399,7 +399,7 @@ class DailyAdviceService:
 
     @staticmethod
     def _relative_gap(draft: _Draft, managed: Decimal | None) -> Decimal:
-        if managed in (None, Decimal("0")):
+        if managed is None or managed == Decimal("0"):
             return Decimal("0")
         amount = draft.amount
         current = draft.current

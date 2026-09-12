@@ -21,3 +21,8 @@ def _assert_mypy_clean(module: str) -> None:
 def test_schema_module_typechecks_in_locked_developer_environment() -> None:
     """Catches omission of jsonschema stubs from the hash-locked dev environment."""
     _assert_mypy_clean("src/xqatexp/artifacts/schemas.py")
+
+
+def test_daily_advice_module_typechecks_with_locked_mypy() -> None:
+    """Catches optional managed value escaping its explicit guard."""
+    _assert_mypy_clean("src/xqatexp/daily/advice.py")
