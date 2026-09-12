@@ -6,11 +6,24 @@
 
 - 实现语言固定为 64 位 CPython 3.12，工程约束 `>=3.12,<3.13`；不使用其他语言实现业务逻辑。
 - 环境管理只使用项目根目录 `.venv`，不使用 Conda，不读取用户全局 site-packages。
-- 正式支持 Windows 10/11 x64；Linux x86_64 用于兼容性测试。路径和原子发布必须分别走平台适配器，不假设 POSIX 目录替换在 Windows 成立。
+- Linux 优先，正式支持 Linux x86_64 与 Windows 10/11 x64；业务逻辑、数据合同和结果格式不按平台分叉。路径和原子发布必须分别覆盖 POSIX 与 Windows 文件系统语义，不假设 POSIX 目录替换在 Windows 成立。
 - 文本统一 UTF-8 无 BOM、LF；代码时区显式使用 `zoneinfo.ZoneInfo("Asia/Shanghai")`，正式 datetime 持久化为 UTC。
 - 金额、价格、权重和费率使用 `decimal.Decimal`；因子、OLS 和波动使用 float64，并在领域边界检查有限值。禁止在两类数值之间隐式转换。
 
-若系统没有兼容 Python，允许从 Python 官方发行渠道安装 CPython 3.12.x。安装只发生在文档门禁通过后，随后执行 `python -m venv .venv`。
+| 维度 | Linux | Windows |
+|---|---|---|
+| 优先级 | 首选运行平台 | 兼容且正式支持 |
+| 架构 | x86_64 | x64 |
+| Python | CPython `>=3.12,<3.13` | CPython `>=3.12,<3.13` |
+| 实际验收基线 | Ubuntu 22.04.5 LTS，WSL2，glibc 2.35 | Windows 11 x64，PowerShell |
+| 最低 Linux ABI | glibc 2.28 级别 | 不适用 |
+| 环境 | 标准库 `venv` | 标准库 `venv` |
+| CLI | `.venv/bin/xqatexp` 或 `.venv/bin/python -m xqatexp` | `.venv\Scripts\xqatexp.exe` 或 `.venv\Scripts\python.exe -m xqatexp` |
+| 路径 | POSIX 路径、符号链接语义 | Windows 路径、junction 语义 |
+
+Ubuntu 22.04 自带的 Python 3.10 不作为运行时。若系统没有兼容 Python，允许从 Python 官方发行渠道安装 CPython 3.12.x；随后在各自平台的独立仓库副本中创建项目根目录 `.venv`。
+
+Windows venv 与 Linux venv 不能共享或互用。若同一仓库通过 `/mnt/c` 同时被 Windows 与 WSL 访问，WSL 不得使用 Windows `.venv`。正式 Linux 验收必须在 WSL 原生 ext4 文件系统中的干净仓库副本和独立 `.venv` 中执行，避免 DrvFS 掩盖 POSIX 权限、rename 或符号链接问题。
 
 ## 2. 依赖边界
 
@@ -135,7 +148,7 @@ XQAT/
 
 DuckDB 临时目录位于用户显式输出父目录下的唯一 `.xqatexp-tmp-<random>` 目录，不能位于系统未知共享目录；ResearchSession 正常或异常退出时只清理该精确目录。运行前要求可用空间至少为预计新输出的 2 倍；估计无法取得时做可用空间绝对下限 1GB 检查，不缩小业务范围。
 
-## 7. Windows 原子发布算法
+## 7. 跨平台原子发布与 Windows 覆盖算法
 
 新目标发布：在目标同一父目录创建唯一 staging，完整写入、关闭句柄、校验后用单次同卷目录 rename 到不存在的正式路径；rename 失败则保留旧状态并清理 staging。
 
@@ -150,7 +163,7 @@ DuckDB 临时目录位于用户显式输出父目录下的唯一 `.xqatexp-tmp-<
 
 每次启动和每次发布前扫描目标同父目录中与该目标精确匹配的 swap 记录并执行相同恢复状态机。路径必须先解析并验证仍位于用户明确目标父目录，清理操作不得使用宽泛 glob。
 
-POSIX 可在平台适配器中使用受支持的原子 rename；两种实现共享相同恢复后置条件：正式路径不存在或指向一个摘要全部通过的完整 Artifact。
+Linux 必须在原生 POSIX 文件系统上实际覆盖 rename、符号链接与中断恢复路径；Windows 必须实际覆盖 NTFS rename、占用/失败回滚和 junction 防护。POSIX 可在平台适配器中使用受支持的原子 rename；两种实现共享相同恢复后置条件：正式路径不存在或指向一个摘要全部通过的完整 Artifact。
 
 ## 8. 统一验证命令
 

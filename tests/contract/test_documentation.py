@@ -65,3 +65,14 @@ def test_production_source_has_no_unfinished_placeholders() -> None:
             if pattern.search(line):
                 findings.append(f"{source.relative_to(PROJECT_ROOT)}:{number}")
     assert findings == []
+
+
+def test_engineering_baseline_formally_supports_linux_and_windows() -> None:
+    baseline = (PROJECT_ROOT / "docs/detailed-design/17-engineering-baseline.md").read_text(
+        encoding="utf-8"
+    )
+    assert "Linux x86_64" in baseline
+    assert "Windows 10/11 x64" in baseline
+    assert "glibc 2.28" in baseline
+    assert "Linux 优先" in baseline
+    assert "Linux x86_64 用于兼容性测试" not in baseline

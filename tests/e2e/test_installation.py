@@ -48,3 +48,14 @@ def test_readme_documents_every_public_command_and_secret_boundary() -> None:
     assert "TUSHARE_TOKEN" in readme
     assert "<在本机填写你的 Token>" in readme
     assert "requirements-build.lock" in readme
+
+
+def test_readme_is_linux_first_and_keeps_windows_powershell() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert readme.index("Linux") < readme.index("Windows PowerShell")
+    assert ".venv/bin/python" in readme
+    assert ".venv/bin/xqatexp" in readme
+    assert r".\.venv\Scripts\python.exe" in readme
+    assert r".\.venv\Scripts\xqatexp.exe" in readme
+    assert "不能共享" in readme
+    assert "Ubuntu 22.04" in readme
