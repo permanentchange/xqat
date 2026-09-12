@@ -29,7 +29,7 @@ def test_canonical_json_preserves_decimal_and_sorts_keys() -> None:
     )
 
 
-def _raw_manifest(payload: bytes) -> dict[str, object]:
+def _raw_manifest(payload: bytes, path: str = "payload.txt") -> dict[str, object]:
     return {
         "schema_version": "1.0",
         "artifact_type": "RAW_DATA",
@@ -41,7 +41,7 @@ def _raw_manifest(payload: bytes) -> dict[str, object]:
         "date_scope": {"start": "2026-09-01", "end": "2026-09-05"},
         "files": [
             {
-                "path": "payload.txt",
+                "path": path,
                 "media_type": "text/plain",
                 "size_bytes": len(payload),
                 "sha256": hashlib.sha256(payload).hexdigest(),
@@ -78,6 +78,35 @@ def test_publisher_and_reader_verify_real_file_digest(tmp_path: Path) -> None:
     assert published.path == output.resolve()
     assert opened.manifest["artifact_type"] == "RAW_DATA"
     assert opened.verified_files == ("payload.txt",)
+
+
+def test_publisher_and_reader_round_trip_unicode_space_path_and_nested_member(
+    tmp_path: Path,
+) -> None:
+    """Catches host-native paths or nested Manifest members escaping portable form."""
+    manifest_module = _artifacts("manifest")
+    publisher_module = _artifacts("publisher")
+    readers_module = _artifacts("readers")
+    enums = importlib.import_module("xqatexp.domain.enums")
+    payload = b"verified nested payload\n"
+
+    def build(staging: Path) -> None:
+        nested = staging / "nested"
+        nested.mkdir()
+        (nested / "payload.txt").write_bytes(payload)
+        (staging / "manifest.json").write_bytes(
+            manifest_module.canonical_json_bytes(_raw_manifest(payload, "nested/payload.txt"))
+        )
+
+    output = tmp_path / "跨平台 result"
+    published = publisher_module.ArtifactPublisher().publish(
+        build, output, enums.OverwritePolicy.ERROR
+    )
+    opened = readers_module.ArtifactReader().open(published.path)
+
+    assert published.path == output.resolve()
+    assert "nested/payload.txt" in opened.verified_files
+    assert all("\\" not in member for member in opened.verified_files)
 
 
 def test_reader_rejects_tampered_payload(tmp_path: Path) -> None:

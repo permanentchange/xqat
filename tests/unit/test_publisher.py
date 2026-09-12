@@ -141,6 +141,21 @@ def test_publisher_rejects_existing_parent_symlink(
         )
 
 
+def test_publisher_rejects_real_directory_symlink(tmp_path: Path) -> None:
+    """Catches path validation that resolves a symlink before rejecting it."""
+    real_parent = tmp_path / "real-parent"
+    real_parent.mkdir()
+    linked_parent = tmp_path / "linked-parent"
+    try:
+        linked_parent.symlink_to(real_parent, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"directory symlink unavailable on this host: {error}")
+    with pytest.raises(ArtifactPublishError, match="ARTIFACT_UNSAFE_OUTPUT_PATH"):
+        ArtifactPublisher().publish(
+            _builder(b"payload"), linked_parent / "result", OverwritePolicy.ERROR
+        )
+
+
 def test_publisher_rejects_low_disk_before_building(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
