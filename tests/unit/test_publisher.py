@@ -259,6 +259,17 @@ def test_recovery_ignores_other_target_and_rejects_escaping_member(tmp_path: Pat
         )
 
 
+@pytest.mark.parametrize("separator", ["/", "\\"])
+def test_recovery_rejects_member_with_any_platform_separator(
+    tmp_path: Path, separator: str
+) -> None:
+    """Catches host-specific parsing of portable recovery record names."""
+    with pytest.raises(ValueError, match="escapes target parent"):
+        ArtifactPublisher._validated_sibling(
+            tmp_path / "result", f".result.backup-..{separator}escape", ".backup-"
+        )
+
+
 def test_recovery_discards_corrupt_backup_when_target_is_valid(tmp_path: Path) -> None:
     target = tmp_path / "result"
     publisher = ArtifactPublisher()

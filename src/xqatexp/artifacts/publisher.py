@@ -162,6 +162,8 @@ class ArtifactPublisher:
     def _validated_sibling(target: Path, name: str, marker: str) -> Path:
         if not isinstance(name, str) or not name.startswith(f".{target.name}{marker}"):
             raise ValueError("recovery member name does not match target")
+        if "/" in name or "\\" in name:
+            raise ValueError("recovery member escapes target parent")
         sibling = (target.parent / name).resolve()
         if sibling.parent != target.parent:
             raise ValueError("recovery member escapes target parent")
