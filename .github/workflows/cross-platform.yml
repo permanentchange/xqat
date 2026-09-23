@@ -1,0 +1,63 @@
+name: Linux-first cross-platform CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cross-platform-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: Linux (primary)
+          - os: windows-latest
+            label: Windows
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up CPython 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements-dev.lock
+            requirements-build.lock
+
+      - name: Install locked dependencies
+        run: |
+          python -m pip install --require-hashes -r requirements-build.lock
+          python -m pip install --require-hashes -r requirements-dev.lock
+          python -m pip install --no-deps --no-build-isolation -e .
+
+      - name: Ruff format
+        run: python -m ruff format --check .
+
+      - name: Ruff lint
+        run: python -m ruff check .
+
+      - name: Mypy strict
+        run: python -m mypy src/xqatexp
+
+      - name: Offline test suite
+        run: python -m pytest -m "not live_tushare" --cov=xqatexp --cov-report=term-missing --cov-fail-under=90
+
+      - name: CLI help
+        run: python -m xqatexp --help
+
+      - name: Offline self-check
+        run: python -m xqatexp self-check --offline
