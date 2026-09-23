@@ -128,6 +128,19 @@ def test_publisher_rejects_symlink_without_resolving_it(
         ArtifactPublisher().publish(_builder(b"new\n"), output, OverwritePolicy.ERROR)
 
 
+def test_publisher_rejects_junction_without_resolving_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches Windows junctions bypassing lexical output-path validation."""
+    output = tmp_path / "junction-result"
+    is_junction = getattr(Path, "is_junction", None)
+    if is_junction is None:
+        pytest.skip("Path.is_junction is unavailable on this Python")
+    monkeypatch.setattr(Path, "is_junction", lambda self: self == output)
+    with pytest.raises(ArtifactPublishError, match="symlink or junction"):
+        ArtifactPublisher().publish(_builder(b"new\n"), output, OverwritePolicy.ERROR)
+
+
 def test_publisher_rejects_existing_parent_symlink(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
