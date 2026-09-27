@@ -12,7 +12,12 @@ from typing import Any, cast
 import duckdb
 
 from xqatexp.artifacts.readers import ArtifactReader
-from xqatexp.domain.contracts import CustomFactorView, SecuritySnapshot, StrategyDeclaration
+from xqatexp.domain.contracts import (
+    CustomFactorView,
+    DataRequirement,
+    SecuritySnapshot,
+    StrategyDeclaration,
+)
 from xqatexp.domain.enums import AssetType
 from xqatexp.research.tables import TABLE_NAMES, ResearchCheckService
 
@@ -272,104 +277,128 @@ class ResearchDataViewImpl:
             raise ResearchAccessError("DATA_REQUIRED_MISSING: next trading day")
         return cast(date, row[0])
 
-    def readiness_coverage(self, custom_factors: CustomFactorView | None) -> dict[str, float]:
-        days = self.trading_days(self.earliest_date, self.decision_date)[-252:]
-        latest_by_week: dict[tuple[int, int], date] = {}
-        for day in days:
-            iso = day.isocalendar()
-            latest_by_week[(iso.year, iso.week)] = day
-        decision_days = tuple(sorted(latest_by_week.values()))
-        stock_factors = tuple(
-            item
-            for item in self._declaration.required_system_factors
-            if not item.startswith("etf_")
-        )
-        etf_factors = tuple(
-            item for item in self._declaration.required_system_factors if item.startswith("etf_")
-        )
-        samples: dict[str, list[float]] = {
-            "market_status": [],
-            "financial": [],
-            "system_factors": [],
-            "etf_factors": [],
-            "custom_factors": [],
-        }
-        for decision_day in decision_days:
-            active = tuple(
-                str(row[0])
-                for row in self._connection.execute(
-                    "SELECT security_id FROM security_master WHERE asset_type='A_SHARE' "
-                    "AND list_date<=? AND (delist_date IS NULL OR delist_date>=?) "
-                    "ORDER BY security_id",
-                    [decision_day, decision_day],
-                ).fetchall()
+    def requirement_coverage(
+        self,
+        requirement: DataRequirement,
+        custom_factors: CustomFactorView | None,
+    ) -> float:
+        days = self.trading_days(self.earliest_date, self.decision_date)[
+            -requirement.lookback_trade_days :
+        ]
+        if requirement.sampling_frequency == "WEEKLY_LAST_TRADING_DAY":
+            latest_by_week: dict[tuple[int, int], date] = {}
+            for day in days:
+                iso = day.isocalendar()
+                latest_by_week[(iso.year, iso.week)] = day
+            sample_days = tuple(sorted(latest_by_week.values()))
+        elif requirement.sampling_frequency == "DAILY":
+            sample_days = tuple(days)
+        else:
+            raise ResearchAccessError(
+                "CONFIG_VALUE_INVALID: unsupported readiness sampling frequency"
             )
-            denominator = len(active)
+        samples = [
+            self._requirement_sample(requirement, sample_day, custom_factors)
+            for sample_day in sample_days
+        ]
+        return min(samples) if samples else 0.0
+
+    def _requirement_sample(
+        self,
+        requirement: DataRequirement,
+        sample_day: date,
+        custom_factors: CustomFactorView | None,
+    ) -> float:
+        if requirement.dataset == "MARKET_STATUS":
+            active = self._active_a_shares(sample_day)
             if not active:
-                for key in ("market_status", "financial", "system_factors"):
-                    samples[key].append(0.0)
-            else:
-                marks = ",".join("?" for _ in active)
-                market_status = _count(
+                return 0.0
+            marks = ",".join("?" for _ in active)
+            observed = _count(
+                self._connection.execute(
+                    "SELECT COUNT(*) FROM security_status_daily s WHERE "
+                    f"s.security_id IN ({marks}) AND s.trade_date=? "
+                    "AND s.available_from<=? AND s.is_st IS NOT NULL "
+                    "AND s.is_suspended_full_day IS NOT NULL AND "
+                    "(s.is_suspended_full_day OR EXISTS (SELECT 1 FROM market_daily d "
+                    "WHERE d.security_id=s.security_id AND d.trade_date=s.trade_date "
+                    "AND d.available_from<=?))",
+                    [*active, sample_day, sample_day, sample_day],
+                )
+            )
+            return float(observed) / len(active)
+        if requirement.dataset == "FINANCIAL":
+            active = self._active_a_shares(sample_day)
+            if not active:
+                return 0.0
+            marks = ",".join("?" for _ in active)
+            observed = _count(
+                self._connection.execute(
+                    "SELECT COUNT(*) FROM security_master m WHERE "
+                    f"m.security_id IN ({marks}) AND EXISTS "
+                    "(SELECT 1 FROM financial_snapshot f "
+                    "WHERE f.security_id=m.security_id AND f.available_from<=?)",
+                    [*active, sample_day],
+                )
+            )
+            return float(observed) / len(active)
+        if requirement.dataset == "SYSTEM_FACTORS":
+            factor_ids = requirement.fields
+            if not factor_ids:
+                return 1.0
+            factor_marks = ",".join("?" for _ in factor_ids)
+            if requirement.security_scope == "A_SHARE_ACTIVE":
+                active = self._active_a_shares(sample_day)
+                if not active:
+                    return 0.0
+                security_marks = ",".join("?" for _ in active)
+                observed = _count(
                     self._connection.execute(
-                        "SELECT COUNT(*) FROM security_status_daily s WHERE "
-                        f"s.security_id IN ({marks}) AND s.trade_date=? "
-                        "AND s.available_from<=? AND s.is_st IS NOT NULL "
-                        "AND s.is_suspended_full_day IS NOT NULL AND "
-                        "(s.is_suspended_full_day OR EXISTS (SELECT 1 FROM market_daily d "
-                        "WHERE d.security_id=s.security_id AND d.trade_date=s.trade_date "
-                        "AND d.available_from<=?))",
-                        [*active, decision_day, decision_day, decision_day],
+                        "SELECT COUNT(*) FROM system_factor_daily WHERE "
+                        f"factor_id IN ({factor_marks}) "
+                        f"AND security_id IN ({security_marks}) "
+                        "AND factor_date=? AND available_from<=?",
+                        [*factor_ids, *active, sample_day, sample_day],
                     )
                 )
-                financial = _count(
-                    self._connection.execute(
-                        "SELECT COUNT(*) FROM security_master m WHERE "
-                        f"m.security_id IN ({marks}) AND EXISTS "
-                        "(SELECT 1 FROM financial_snapshot f "
-                        "WHERE f.security_id=m.security_id AND f.available_from<=?)",
-                        [*active, decision_day],
-                    )
-                )
-                samples["market_status"].append(float(market_status) / denominator)
-                samples["financial"].append(float(financial) / denominator)
-                if stock_factors:
-                    factor_marks = ",".join("?" for _ in stock_factors)
-                    observed = _count(
-                        self._connection.execute(
-                            "SELECT COUNT(*) FROM system_factor_daily WHERE "
-                            f"factor_id IN ({factor_marks}) AND security_id IN ({marks}) "
-                            "AND factor_date=? AND available_from<=?",
-                            [*stock_factors, *active, decision_day, decision_day],
-                        )
-                    )
-                    samples["system_factors"].append(
-                        float(observed) / (denominator * len(stock_factors))
-                    )
-                if self._declaration.required_custom_factors and custom_factors is not None:
-                    loaded = cast(
-                        Mapping[str, Mapping[str, float]],
-                        custom_factors.values_at(
-                            decision_day,
-                            self._declaration.required_custom_factors,
-                            active,
-                        ),
-                    )
-                    observed = sum(len(loaded.get(name, {})) for name in loaded)
-                    samples["custom_factors"].append(
-                        observed / (denominator * len(self._declaration.required_custom_factors))
-                    )
-            if etf_factors:
-                factor_marks = ",".join("?" for _ in etf_factors)
+                return float(observed) / (len(active) * len(factor_ids))
+            if requirement.security_scope.startswith("SECURITY:"):
+                security_id = requirement.security_scope.removeprefix("SECURITY:")
                 observed = _count(
                     self._connection.execute(
                         "SELECT COUNT(DISTINCT factor_id) FROM system_factor_daily WHERE "
-                        f"factor_id IN ({factor_marks}) AND factor_date=? AND available_from<=?",
-                        [*etf_factors, decision_day, decision_day],
+                        f"factor_id IN ({factor_marks}) AND security_id=? "
+                        "AND factor_date=? AND available_from<=?",
+                        [*factor_ids, security_id, sample_day, sample_day],
                     )
                 )
-                samples["etf_factors"].append(float(observed) / len(etf_factors))
-        return {key: min(values) if values else 1.0 for key, values in samples.items()}
+                return float(observed) / len(factor_ids)
+        if requirement.dataset == "CUSTOM_FACTORS":
+            if custom_factors is None:
+                return 0.0
+            active = self._active_a_shares(sample_day)
+            if not active or not requirement.fields:
+                return 0.0
+            loaded = cast(
+                Mapping[str, Mapping[str, float]],
+                custom_factors.values_at(sample_day, requirement.fields, active),
+            )
+            observed = sum(len(loaded.get(name, {})) for name in requirement.fields)
+            return observed / (len(active) * len(requirement.fields))
+        raise ResearchAccessError(
+            f"CONFIG_VALUE_INVALID: unsupported readiness dataset {requirement.dataset}"
+        )
+
+    def _active_a_shares(self, on_date: date) -> tuple[str, ...]:
+        return tuple(
+            str(row[0])
+            for row in self._connection.execute(
+                "SELECT security_id FROM security_master WHERE asset_type='A_SHARE' "
+                "AND list_date<=? AND (delist_date IS NULL OR delist_date>=?) "
+                "ORDER BY security_id",
+                [on_date, on_date],
+            ).fetchall()
+        )
 
     def _bounded(self, start: date, end: date) -> None:
         if start < self.earliest_date or end > self.decision_date or start > end:
