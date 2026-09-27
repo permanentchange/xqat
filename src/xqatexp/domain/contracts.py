@@ -185,7 +185,6 @@ class TargetPortfolio:
     explanations: tuple[Explanation, ...]
 
 
-
 @dataclass(frozen=True, slots=True)
 class StrategyDiagnostics:
     schema_id: str
