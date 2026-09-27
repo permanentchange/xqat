@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import cast
 
-
 WEEKLY_STRATEGY_DEFAULTS: dict[str, object] = {
     "entry_rank": 20,
     "exit_rank": 40,
