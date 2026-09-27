@@ -652,4 +652,3 @@ class BacktestEngine:
         if result <= 0:
             raise ValueError(f"BACKTEST_VALUATION_MISSING: nonpositive {field}")
         return result
-

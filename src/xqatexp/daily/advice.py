@@ -418,7 +418,9 @@ class DailyAdviceService:
             lot_size,
             price,
             cash,
-            lambda quantity: self._fees.calculate(
-                asset_type, OrderSide.BUY, Decimal(quantity) * price, on_date
-            ).total,
+            lambda quantity: (
+                self._fees.calculate(
+                    asset_type, OrderSide.BUY, Decimal(quantity) * price, on_date
+                ).total
+            ),
         )

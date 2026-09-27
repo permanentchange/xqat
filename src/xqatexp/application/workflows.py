@@ -40,9 +40,7 @@ class StrategyWorkflowService:
             declaration,
             temporary_parent=context.output_path.parent,
         ) as session:
-            readiness = ReadinessChecker().check(
-                declaration, session.view(run.end_date), custom
-            )
+            readiness = ReadinessChecker().check(declaration, session.view(run.end_date), custom)
             if not readiness.is_ready:
                 raise ValueError(f"{readiness.issues[0]}: backtest input is not ready")
             result = BacktestEngine().run(

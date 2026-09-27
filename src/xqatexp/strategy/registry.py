@@ -68,6 +68,4 @@ def resolve_strategy_spec(strategy_id: str, strategy_version: str) -> StrategySp
     try:
         return _SPECS[(strategy_id, strategy_version)]
     except KeyError as error:
-        raise ValueError(
-            f"STRATEGY_UNSUPPORTED: {strategy_id}@{strategy_version}"
-        ) from error
+        raise ValueError(f"STRATEGY_UNSUPPORTED: {strategy_id}@{strategy_version}") from error

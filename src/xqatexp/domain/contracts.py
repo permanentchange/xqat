@@ -186,7 +186,6 @@ class TargetPortfolio:
 
 
 
-
 @dataclass(frozen=True, slots=True)
 class StrategyDiagnostics:
     schema_id: str

@@ -264,8 +264,10 @@ def test_config_rejects_execution_modes_without_real_implementation(
 ) -> None:
     config_path, _ = _write_config(tmp_path)
     text = config_path.read_text(encoding="utf-8")
-    old = 'price_model = "NEXT_OPEN"' if field == "price_model" else (
-        'fee_schedule_id = "cn_cash_market_default_v1"'
+    old = (
+        'price_model = "NEXT_OPEN"'
+        if field == "price_model"
+        else ('fee_schedule_id = "cn_cash_market_default_v1"')
     )
     config_path.write_text(text.replace(old, f'{field} = "{value}"'), encoding="utf-8")
     with pytest.raises(Exception, match=field):

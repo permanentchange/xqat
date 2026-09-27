@@ -49,9 +49,7 @@ class RebalancePlanner:
             if price is None or price <= 0 or rule is None:
                 continue
             amounts[security_id] = quantize_fen(portfolio_value * weight)
-            quantities[security_id] = lot_quantity(
-                amounts[security_id], price, rule.buy_lot_size
-            )
+            quantities[security_id] = lot_quantity(amounts[security_id], price, rule.buy_lot_size)
         sells = []
         for security_id, current in current_positions.items():
             target_quantity = quantities.get(security_id, 0)
@@ -93,7 +91,10 @@ class RebalancePlanner:
                 buy_candidates.append(
                     (
                         relative_gap(
-                            amounts[security_id], current, reference_prices[security_id], portfolio_value
+                            amounts[security_id],
+                            current,
+                            reference_prices[security_id],
+                            portfolio_value,
                         ),
                         target_ranks[security_id] or 10**9,
                         security_id,
