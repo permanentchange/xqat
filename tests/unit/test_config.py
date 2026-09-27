@@ -214,3 +214,64 @@ def test_dividend_tax_configuration_is_unambiguous(
             run_id="01991a6a-4c00-7000-8000-000000000002",
             generated_at=datetime(2026, 9, 6, tzinfo=UTC),
         )
+
+
+def test_config_rejects_unknown_strategy_identity(tmp_path: Path) -> None:
+    config_path, _ = _write_config(tmp_path)
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8").replace(
+            'strategy_id = "weekly_market_guard_rank_v1"',
+            'strategy_id = "unknown_strategy"\nstrategy_version = "1.0.0"',
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(Exception, match="STRATEGY_UNSUPPORTED"):
+        _config().resolve_config(
+            {},
+            config_path,
+            run_id="01991a6a-4c00-7000-8000-000000000002",
+            generated_at=datetime(2026, 9, 6, tzinfo=UTC),
+        )
+
+
+def test_config_rejects_unsupported_strategy_version(tmp_path: Path) -> None:
+    config_path, _ = _write_config(tmp_path)
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8").replace(
+            'strategy_id = "weekly_market_guard_rank_v1"',
+            'strategy_id = "weekly_market_guard_rank_v1"\nstrategy_version = "9.9.9"',
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(Exception, match="STRATEGY_UNSUPPORTED"):
+        _config().resolve_config(
+            {},
+            config_path,
+            run_id="01991a6a-4c00-7000-8000-000000000002",
+            generated_at=datetime(2026, 9, 6, tzinfo=UTC),
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("price_model", "SAME_CLOSE"),
+        ("fee_schedule_id", "unknown_fee_schedule"),
+    ),
+)
+def test_config_rejects_execution_modes_without_real_implementation(
+    tmp_path: Path, field: str, value: str
+) -> None:
+    config_path, _ = _write_config(tmp_path)
+    text = config_path.read_text(encoding="utf-8")
+    old = 'price_model = "NEXT_OPEN"' if field == "price_model" else (
+        'fee_schedule_id = "cn_cash_market_default_v1"'
+    )
+    config_path.write_text(text.replace(old, f'{field} = "{value}"'), encoding="utf-8")
+    with pytest.raises(Exception, match=field):
+        _config().resolve_config(
+            {},
+            config_path,
+            run_id="01991a6a-4c00-7000-8000-000000000002",
+            generated_at=datetime(2026, 9, 6, tzinfo=UTC),
+        )
