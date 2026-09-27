@@ -20,6 +20,7 @@ from xqatexp.domain.enums import AssetType, OrderSide, UnfilledReason
 from xqatexp.performance.contribution import contribution
 from xqatexp.portfolio.rebalance import LotRule, RebalancePlanner
 from xqatexp.portfolio.transitions import annotate_transitions
+from xqatexp.strategy.schedule import DecisionSchedule, WeeklyLastTradingDayCloseSchedule
 
 
 class EngineData(Protocol):
@@ -105,6 +106,7 @@ class BacktestEngine:
         end_date: date,
         initial_cash: Decimal,
         execution_assumptions: Mapping[str, object],
+        schedule: DecisionSchedule | None = None,
     ) -> BacktestResult:
         if initial_cash <= 0 or start_date > end_date:
             raise ValueError("CONFIG_VALUE_INVALID: invalid backtest range or initial_cash")
@@ -129,6 +131,7 @@ class BacktestEngine:
         running_peak = initial_cash
         benchmark_base: Decimal | None = None
         previous_benchmark: Decimal | None = None
+        decision_schedule = schedule or WeeklyLastTradingDayCloseSchedule()
 
         for current_day in days:
             account.release_sellable(current_day)
@@ -246,7 +249,7 @@ class BacktestEngine:
                 if action.record_date == current_day:
                     action_processor.record_entitlement(account, action)
 
-            if self._is_weekly_close(data, current_day):
+            if decision_schedule.is_decision_day(data, current_day):
                 generated = strategy.generate_target(data.view(current_day), custom, parameters)
                 annotated = annotate_transitions(generated, previous_target)
                 if annotated.effective_from <= current_day:
@@ -601,12 +604,3 @@ class BacktestEngine:
             raise ValueError(f"BACKTEST_VALUATION_MISSING: nonpositive {field}")
         return result
 
-    @staticmethod
-    def _is_weekly_close(data: EngineData, current_day: date) -> bool:
-        try:
-            following = data.next_trading_day(current_day)
-        except (IndexError, ValueError):
-            return current_day.weekday() == 4
-        current_iso = current_day.isocalendar()
-        following_iso = following.isocalendar()
-        return (current_iso.year, current_iso.week) != (following_iso.year, following_iso.week)
