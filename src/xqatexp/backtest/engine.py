@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from xqatexp.backtest.account import SimulatedAccount
 from xqatexp.backtest.corporate_actions import CorporateActionProcessor, DividendAction
 from xqatexp.backtest.execution import ExecutionFacts, ExecutionOutcome, ExecutionSimulator
 from xqatexp.backtest.fees import FeeModel
 from xqatexp.domain.contracts import (
+    AllocationDecision,
     CustomFactorView,
     ExecutionRecord,
     ResearchDataView,
@@ -20,6 +21,7 @@ from xqatexp.domain.enums import AssetType, OrderSide, UnfilledReason
 from xqatexp.performance.contribution import contribution
 from xqatexp.portfolio.rebalance import LotRule, RebalancePlanner
 from xqatexp.portfolio.transitions import annotate_transitions
+from xqatexp.strategy.decision import stable_decision_id, stable_instruction_id
 from xqatexp.strategy.schedule import DecisionSchedule, WeeklyLastTradingDayCloseSchedule
 
 
@@ -118,7 +120,7 @@ class BacktestEngine:
         account = SimulatedAccount(initial_cash)
         action_processor = CorporateActionProcessor()
         actions = self._load_corporate_actions(data, start_date, end_date, execution_assumptions)
-        pending: dict[date, TargetPortfolio] = {}
+        pending: dict[date, AllocationDecision] = {}
         targets: list[TargetPortfolio] = []
         trades: list[ExecutionRecord] = []
         unfilled: list[UnfilledRecord] = []
@@ -250,13 +252,33 @@ class BacktestEngine:
                     action_processor.record_entitlement(account, action)
 
             if decision_schedule.is_decision_day(data, current_day):
-                generated = strategy.generate_target(data.view(current_day), custom, parameters)
+                research = data.view(current_day)
+                decision_generator = getattr(strategy, "generate_decision", None)
+                if callable(decision_generator):
+                    decision = cast(
+                        AllocationDecision,
+                        decision_generator(research, custom, parameters),
+                    )
+                    generated = decision.target
+                else:
+                    generated = strategy.generate_target(research, custom, parameters)
+                    decision = AllocationDecision(
+                        stable_decision_id(
+                            generated.strategy_id,
+                            generated.strategy_version,
+                            generated.decision_date,
+                            generated.effective_from,
+                            "ALLOCATION",
+                        ),
+                        generated,
+                    )
                 annotated = annotate_transitions(generated, previous_target)
+                decision = replace(decision, target=annotated)
                 if annotated.effective_from <= current_day:
                     raise ValueError("PORTFOLIO_INVALID_TARGET: target is not forward effective")
                 if annotated.effective_from in pending:
                     raise ValueError("PORTFOLIO_INVALID_TARGET: duplicate effective date")
-                pending[annotated.effective_from] = annotated
+                pending[annotated.effective_from] = decision
                 targets.append(annotated)
                 previous_target = annotated
         limitations = (
@@ -342,12 +364,13 @@ class BacktestEngine:
         self,
         data: EngineData,
         account: SimulatedAccount,
-        target: TargetPortfolio,
+        decision: AllocationDecision,
         execution_date: date,
         slippage: Decimal,
         participation: Decimal,
         unfilled: list[UnfilledRecord],
     ) -> tuple[list[tuple[ExecutionRecord, AssetType]], Decimal, Decimal]:
+        target = decision.target
         security_ids = sorted(
             set(account.positions) | {position.security_id for position in target.positions}
         )
@@ -389,8 +412,17 @@ class BacktestEngine:
             cash_budget=Decimal("0"),
         )
         executed: list[tuple[ExecutionRecord, AssetType]] = []
-        for instruction in sell_plan.instructions:
-            if instruction.side is OrderSide.SELL:
+        for raw_instruction in sell_plan.instructions:
+            if raw_instruction.side is OrderSide.SELL:
+                instruction = replace(
+                    raw_instruction,
+                    instruction_id=stable_instruction_id(
+                        decision.decision_id,
+                        raw_instruction.security_id,
+                        raw_instruction.side.value,
+                    ),
+                    decision_id=decision.decision_id,
+                )
                 self._execute(
                     data,
                     account,
@@ -413,8 +445,17 @@ class BacktestEngine:
             lot_rules=rules,
             cash_budget=account.cash_available,
         )
-        for instruction in buy_plan.instructions:
-            if instruction.side is OrderSide.BUY:
+        for raw_instruction in buy_plan.instructions:
+            if raw_instruction.side is OrderSide.BUY:
+                instruction = replace(
+                    raw_instruction,
+                    instruction_id=stable_instruction_id(
+                        decision.decision_id,
+                        raw_instruction.security_id,
+                        raw_instruction.side.value,
+                    ),
+                    decision_id=decision.decision_id,
+                )
                 self._execute(
                     data,
                     account,
