@@ -90,6 +90,7 @@ class BacktestResult:
     unfilled: tuple[UnfilledRecord, ...]
     portfolio_daily: tuple[PortfolioDailyRecord, ...]
     limitations: tuple[str, ...] = ()
+    decisions: tuple[AllocationDecision, ...] = ()
 
 
 class BacktestEngine:
@@ -122,6 +123,7 @@ class BacktestEngine:
         actions = self._load_corporate_actions(data, start_date, end_date, execution_assumptions)
         pending: dict[date, AllocationDecision] = {}
         targets: list[TargetPortfolio] = []
+        decisions: list[AllocationDecision] = []
         trades: list[ExecutionRecord] = []
         unfilled: list[UnfilledRecord] = []
         daily: list[PortfolioDailyRecord] = []
@@ -280,6 +282,7 @@ class BacktestEngine:
                     raise ValueError("PORTFOLIO_INVALID_TARGET: duplicate effective date")
                 pending[annotated.effective_from] = decision
                 targets.append(annotated)
+                decisions.append(decision)
                 previous_target = annotated
         limitations = (
             ("DIVIDEND_TAX_NOT_PERSONALIZED",)
@@ -289,7 +292,12 @@ class BacktestEngine:
             else ()
         )
         return BacktestResult(
-            tuple(targets), tuple(trades), tuple(unfilled), tuple(daily), limitations
+            tuple(targets),
+            tuple(trades),
+            tuple(unfilled),
+            tuple(daily),
+            limitations,
+            tuple(decisions),
         )
 
     @staticmethod
