@@ -237,6 +237,8 @@ class RebalanceInstruction:
     priority: int
     reference_price: Decimal
     reason_codes: tuple[str, ...]
+    instruction_id: str | None = None
+    decision_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,6 +265,8 @@ class ExecutionRecord:
     status: FillStatus
     unfilled_reason: UnfilledReason | None = None
     reference_price: Decimal | None = None
+    instruction_id: str | None = None
+    decision_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
