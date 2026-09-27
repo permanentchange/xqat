@@ -185,6 +185,22 @@ class TargetPortfolio:
     explanations: tuple[Explanation, ...]
 
 
+
+
+@dataclass(frozen=True, slots=True)
+class StrategyDiagnostics:
+    schema_id: str
+    schema_version: str
+    values: Mapping[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class AllocationDecision:
+    decision_id: str
+    target: TargetPortfolio
+    diagnostics: StrategyDiagnostics | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class AccountPosition:
     security_id: str
