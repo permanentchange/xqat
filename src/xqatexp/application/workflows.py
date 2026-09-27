@@ -21,8 +21,7 @@ from xqatexp.reporting.readers import load_target
 from xqatexp.research.custom_factors import CsvCustomFactorView
 from xqatexp.research.readiness import ReadinessChecker
 from xqatexp.research.session import ResearchSession
-from xqatexp.strategy.declaration import strategy_declaration
-from xqatexp.strategy.weekly_strategy import WeeklyMarketGuardRankStrategy
+from xqatexp.strategy.registry import StrategySpec, resolve_strategy_spec
 
 
 class StrategyWorkflowService:
@@ -32,9 +31,10 @@ class StrategyWorkflowService:
     def backtest(self, context: ResolvedRunContext, overwrite: OverwritePolicy) -> Path:
         if context.start_date is None or context.end_date is None:
             raise ValueError("CONFIG_VALUE_INVALID: backtest dates required")
-        declaration = strategy_declaration(context.parameters)
-        custom = self._custom(context, context.end_date)
-        strategy = WeeklyMarketGuardRankStrategy(context.parameters)
+        spec = self._strategy_spec(context)
+        declaration = spec.declaration(context.parameters)
+        custom = self._custom(context, context.end_date, spec)
+        strategy = spec.create(context.parameters)
         with ResearchSession(
             context.research_artifact_path,
             declaration,
@@ -60,9 +60,10 @@ class StrategyWorkflowService:
     def daily_target(self, context: ResolvedRunContext, overwrite: OverwritePolicy) -> Path:
         if context.decision_date is None:
             raise ValueError("CONFIG_VALUE_INVALID: decision_date required")
-        declaration = strategy_declaration(context.parameters)
-        custom = self._custom(context, context.decision_date)
-        strategy = WeeklyMarketGuardRankStrategy(context.parameters)
+        spec = self._strategy_spec(context)
+        declaration = spec.declaration(context.parameters)
+        custom = self._custom(context, context.decision_date, spec)
+        strategy = spec.create(context.parameters)
         previous = (
             load_target(context.previous_target_path)
             if context.previous_target_path is not None
@@ -104,7 +105,8 @@ class StrategyWorkflowService:
             if account_path is not None
             else None
         )
-        declaration = strategy_declaration(context.parameters)
+        spec = self._strategy_spec(context)
+        declaration = spec.declaration(context.parameters)
         ids = {item.security_id for item in target.positions}
         if account is not None:
             ids.update(item.security_id for item in account.positions)
@@ -141,8 +143,16 @@ class StrategyWorkflowService:
         ).path
 
     @staticmethod
-    def _custom(context: ResolvedRunContext, decision_date: date) -> CsvCustomFactorView | None:
-        required = strategy_declaration(context.parameters).required_custom_factors
+    def _strategy_spec(context: ResolvedRunContext) -> StrategySpec:
+        return resolve_strategy_spec(context.strategy_id, context.strategy_version)
+
+    @staticmethod
+    def _custom(
+        context: ResolvedRunContext,
+        decision_date: date,
+        spec: StrategySpec,
+    ) -> CsvCustomFactorView | None:
+        required = spec.declaration(context.parameters).required_custom_factors
         if not required:
             return None
         if len(context.custom_factor_inputs) != 1:
