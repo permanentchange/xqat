@@ -87,7 +87,6 @@ class RebalancePlanner:
         for security_id, target_quantity in quantities.items():
             current = current_positions.get(security_id, 0)
             if target_quantity > current:
-                gap = amounts[security_id] - Decimal(current) * reference_prices[security_id]
                 buy_candidates.append(
                     (
                         relative_gap(

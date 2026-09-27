@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import cast
+from collections.abc import Mapping
 
 
 WEEKLY_STRATEGY_DEFAULTS: dict[str, object] = {
@@ -153,6 +153,11 @@ class WeeklyMarketGuardParameters:
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, object]) -> WeeklyMarketGuardParameters:
+        normalized = dict(WEEKLY_STRATEGY_DEFAULTS)
+        default_weights = cast(Mapping[str, object], WEEKLY_STRATEGY_DEFAULTS["score_weights"])
+        normalized["score_weights"] = dict(default_weights)
+        normalized.update(values)
+        values = normalized
         return cls(
             csi300_etf_id=str(values["csi300_etf_id"]),
             entry_rank=int(cast(int, values["entry_rank"])),
