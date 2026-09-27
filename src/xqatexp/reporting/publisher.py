@@ -252,9 +252,12 @@ class ResultArtifactPublisher:
         ]
         trades = []
         for record in result.trades:
-            decision = self._decision_date(result, record.execution_date)
-            instruction_id = self._stable_id(
-                "instruction", decision, record.security_id, record.side.value
+            decision = self._decision_date(result, record)
+            decision_id = record.decision_id or self._stable_id(
+                "decision", decision, record.security_id
+            )
+            instruction_id = record.instruction_id or self._stable_id(
+                "instruction", decision_id, record.security_id, record.side.value
             )
             execution_id = self._stable_id(
                 instruction_id, record.execution_date, record.filled_quantity
@@ -269,6 +272,7 @@ class ResultArtifactPublisher:
                 {
                     "execution_id": execution_id,
                     "instruction_id": instruction_id,
+                    "decision_id": decision_id,
                     "decision_date": decision,
                     "execution_date": record.execution_date,
                     "security_id": record.security_id,
@@ -624,9 +628,15 @@ class ResultArtifactPublisher:
         return Decimal(record.filled_quantity) * direction * (record.execution_price - reference)
 
     @staticmethod
-    def _decision_date(result: BacktestResult, execution_date: date) -> date:
+    def _decision_date(result: BacktestResult, record: ExecutionRecord) -> date:
+        if record.decision_id is not None:
+            for decision in result.decisions:
+                if decision.decision_id == record.decision_id:
+                    return decision.target.decision_date
         candidates = [
-            item.decision_date for item in result.targets if item.effective_from <= execution_date
+            item.decision_date
+            for item in result.targets
+            if item.effective_from <= record.execution_date
         ]
         if not candidates:
             raise ValueError("BACKTEST_ACCOUNT_CONSERVATION_BROKEN: trade without target")
