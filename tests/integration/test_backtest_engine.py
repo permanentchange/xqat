@@ -8,6 +8,7 @@ from tests.unit.portfolio.test_validation import target
 from xqatexp.backtest.engine import BacktestEngine
 from xqatexp.domain.contracts import TargetPosition
 from xqatexp.domain.enums import AssetType, OrderSide
+from xqatexp.strategy.schedule import DailyCloseSchedule
 
 
 class _View:
@@ -211,3 +212,44 @@ def test_suspended_holding_uses_last_reliable_close_only_for_valuation() -> None
         item for item in result.portfolio_daily if item.valuation_date == date(2026, 9, 8)
     )
     assert suspended.stock_market_value == Decimal("5000")
+
+
+def test_engine_uses_explicit_daily_decision_schedule() -> None:
+    decisions: list[date] = []
+
+    class DailyStrategy:
+        def generate_target(self, research, custom, parameters):
+            del custom, parameters
+            decisions.append(research.decision_date)
+            return replace(
+                target(Decimal("0"), Decimal("1")),
+                decision_date=research.decision_date,
+                effective_from=research._next_day,
+                positions=(),
+                cash_weight=Decimal("1"),
+            )
+
+    BacktestEngine().run(
+        data=_Data(),
+        strategy=DailyStrategy(),
+        parameters={},
+        custom=None,
+        start_date=date(2026, 9, 4),
+        end_date=date(2026, 9, 14),
+        initial_cash=Decimal("10000"),
+        execution_assumptions={
+            "slippage_bps": Decimal("0"),
+            "max_volume_participation": Decimal("0.10"),
+        },
+        schedule=DailyCloseSchedule(),
+    )
+
+    assert decisions == [
+        date(2026, 9, 4),
+        date(2026, 9, 7),
+        date(2026, 9, 8),
+        date(2026, 9, 9),
+        date(2026, 9, 10),
+        date(2026, 9, 11),
+        date(2026, 9, 14),
+    ]
