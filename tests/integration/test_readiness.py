@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from xqatexp.domain.contracts import StrategyDeclaration
+from xqatexp.domain.contracts import DataRequirement, StrategyDeclaration
 from xqatexp.research.readiness import ReadinessChecker
 
 
@@ -44,3 +44,35 @@ def test_required_custom_factor_cannot_be_silently_omitted() -> None:
     report = ReadinessChecker().check(_declaration(custom=True), _View(313))
     assert report.is_ready is False
     assert "FACTOR_COVERAGE_INSUFFICIENT" in report.issues
+
+
+def test_readiness_only_evaluates_declared_requirements() -> None:
+    declaration = StrategyDeclaration(
+        "price_only_strategy",
+        "1.0.0",
+        "1.0",
+        "DAILY",
+        20,
+        ("research_close",),
+        (),
+        (),
+        {},
+        (
+            DataRequirement(
+                "trading_days",
+                "TRADING_DAYS",
+                (),
+                20,
+                "MARKET",
+                True,
+                "EXACT",
+                1.0,
+                "DAILY",
+                "STRATEGY_WARMUP_INSUFFICIENT",
+            ),
+        ),
+    )
+    report = ReadinessChecker().check(declaration, _View(20))
+    assert report.is_ready is True
+    assert report.coverage == {"trading_days": 1.0}
+    assert report.issues == ()
