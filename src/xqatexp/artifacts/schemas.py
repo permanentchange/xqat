@@ -268,6 +268,7 @@ _ARROW_SCHEMAS = {
         [
             pa.field("execution_id", pa.string(), nullable=False),
             pa.field("instruction_id", pa.string(), nullable=False),
+            pa.field("decision_id", pa.string(), nullable=False),
             pa.field("decision_date", pa.date32(), nullable=False),
             pa.field("execution_date", pa.date32(), nullable=False),
             pa.field("security_id", pa.string(), nullable=False),
