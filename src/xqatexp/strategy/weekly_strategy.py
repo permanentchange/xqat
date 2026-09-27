@@ -6,15 +6,18 @@ from decimal import Decimal
 from typing import Any, cast
 
 from xqatexp.domain.contracts import (
+    AllocationDecision,
     CustomFactorView,
     Explanation,
     ResearchDataSlice,
     ResearchDataView,
     SecuritySnapshot,
+    StrategyDiagnostics,
     TargetPortfolio,
     TargetPosition,
 )
 from xqatexp.domain.enums import AssetType, MarketRegime
+from xqatexp.strategy.decision import stable_decision_id
 from xqatexp.strategy.declaration import ETF_FACTOR_IDS, STOCK_FACTOR_IDS, strategy_declaration
 from xqatexp.strategy.drawdown import DrawdownOverlay, OverlayLevel, rolling_drawdown
 from xqatexp.strategy.market_regime import classify_market
@@ -181,6 +184,44 @@ class WeeklyMarketGuardRankStrategy:
                 Explanation(f"REGIME_{regime.value}", "ETF market risk regime"),
                 Explanation(f"DRAWDOWN_{overlay.level.value}", "Rolling theoretical drawdown"),
             ),
+        )
+
+    def generate_decision(
+        self,
+        research: ResearchDataView,
+        custom: CustomFactorView | None,
+        parameters: Mapping[str, object],
+    ) -> AllocationDecision:
+        target = self.generate_target(research, custom, parameters)
+        diagnostics = StrategyDiagnostics(
+            "weekly_market_guard_rank_v1",
+            "1.0",
+            {
+                "market_regime": target.market_regime.value,
+                "theoretical_drawdown": target.theoretical_drawdown,
+                "drawdown_window_trade_days": target.drawdown_window_trade_days,
+                "drawdown_observations": target.drawdown_observations,
+                "drawdown_overlay_level": target.drawdown_overlay_level,
+                "positions": {
+                    item.security_id: {
+                        "rank": item.rank,
+                        "score": item.score,
+                        "holding_age_weeks": item.holding_age_weeks,
+                    }
+                    for item in target.positions
+                },
+            },
+        )
+        return AllocationDecision(
+            stable_decision_id(
+                target.strategy_id,
+                target.strategy_version,
+                target.decision_date,
+                target.effective_from,
+                "ALLOCATION",
+            ),
+            target,
+            diagnostics,
         )
 
     @staticmethod
