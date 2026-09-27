@@ -11,6 +11,7 @@ from xqatexp.domain.contracts import (
     TargetPortfolio,
 )
 from xqatexp.strategy.declaration import strategy_declaration
+from xqatexp.strategy.schedule import DecisionSchedule, WeeklyLastTradingDayCloseSchedule
 from xqatexp.strategy.weekly_strategy import WeeklyMarketGuardRankStrategy
 
 
@@ -29,6 +30,7 @@ class StrategySpec:
     strategy_version: str
     declaration_factory: Callable[[Mapping[str, object]], StrategyDeclaration]
     strategy_factory: Callable[[Mapping[str, object]], RegisteredStrategy]
+    schedule: DecisionSchedule
 
     def declaration(self, parameters: Mapping[str, object]) -> StrategyDeclaration:
         declaration = self.declaration_factory(parameters)
@@ -48,6 +50,7 @@ _WEEKLY = StrategySpec(
     strategy_version="1.0.0",
     declaration_factory=strategy_declaration,
     strategy_factory=WeeklyMarketGuardRankStrategy,
+    schedule=WeeklyLastTradingDayCloseSchedule(),
 )
 
 _SPECS = {(_WEEKLY.strategy_id, _WEEKLY.strategy_version): _WEEKLY}
