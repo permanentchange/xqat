@@ -12,6 +12,7 @@ from xqatexp.domain.contracts import (
 )
 from xqatexp.strategy.declaration import strategy_declaration
 from xqatexp.strategy.schedule import DecisionSchedule, WeeklyLastTradingDayCloseSchedule
+from xqatexp.strategy.weekly_parameters import normalize_weekly_parameters
 from xqatexp.strategy.weekly_strategy import WeeklyMarketGuardRankStrategy
 
 
@@ -30,6 +31,7 @@ class StrategySpec:
     strategy_version: str
     declaration_factory: Callable[[Mapping[str, object]], StrategyDeclaration]
     strategy_factory: Callable[[Mapping[str, object]], RegisteredStrategy]
+    parameter_normalizer: Callable[[Mapping[str, object], Mapping[str, object]], dict[str, object]]
     schedule: DecisionSchedule
 
     def declaration(self, parameters: Mapping[str, object]) -> StrategyDeclaration:
@@ -44,12 +46,18 @@ class StrategySpec:
     def create(self, parameters: Mapping[str, object]) -> RegisteredStrategy:
         return self.strategy_factory(parameters)
 
+    def normalize_parameters(
+        self, raw: Mapping[str, object], cli: Mapping[str, object]
+    ) -> dict[str, object]:
+        return self.parameter_normalizer(raw, cli)
+
 
 _WEEKLY = StrategySpec(
     strategy_id="weekly_market_guard_rank_v1",
     strategy_version="1.0.0",
     declaration_factory=strategy_declaration,
     strategy_factory=WeeklyMarketGuardRankStrategy,
+    parameter_normalizer=normalize_weekly_parameters,
     schedule=WeeklyLastTradingDayCloseSchedule(),
 )
 
