@@ -4,6 +4,18 @@ from collections.abc import Mapping
 from datetime import date
 from decimal import Decimal
 
+from xqatexp.backtest.account_events import (
+    AccountEvent,
+    CashDividendDeclared,
+    CashDividendPaid,
+    CashInitialized,
+    DividendEntitlementRecorded,
+    SellableReleased,
+    SplitApplied,
+    StockDistributionApplied,
+    TradeFilled,
+    ValuationRecorded,
+)
 from xqatexp.domain.contracts import ExecutionRecord
 from xqatexp.domain.enums import OrderSide
 
@@ -23,7 +35,7 @@ class SimulatedAccount:
         self.sellable_quantities = dict(sellable or {})
         self.pending_sellable: dict[date, dict[str, int]] = {}
         self.entitlements: dict[str, tuple[str, Decimal, int, int]] = {}
-        self.ledger: list[tuple[str, object]] = [("CASH_INITIALIZED", initial_cash)]
+        self.ledger: list[AccountEvent] = [CashInitialized(initial_cash)]
         self._assert_invariants()
 
     def apply_trade(self, record: ExecutionRecord, *, release_date: date | None = None) -> None:
@@ -46,7 +58,7 @@ class SimulatedAccount:
             )
             self.sellable_quantities[security_id] -= record.filled_quantity
             self.cash_available += record.gross_amount - record.fees.total
-        self.ledger.append(("TRADE_FILLED", record))
+        self.ledger.append(TradeFilled(record))
         self._assert_invariants()
 
     def release_sellable(self, on_date: date) -> None:
@@ -56,8 +68,71 @@ class SimulatedAccount:
                     self.sellable_quantities[security_id] = (
                         self.sellable_quantities.get(security_id, 0) + quantity
                     )
-                    self.ledger.append(("SELLABLE_RELEASED", (security_id, quantity)))
+                    self.ledger.append(SellableReleased(security_id, quantity))
         self._assert_invariants()
+
+
+    def record_entitlement(
+        self,
+        *,
+        event_id: str,
+        security_id: str,
+        cash: Decimal,
+        stock_quantity: int,
+        split_sellable_quantity: int,
+    ) -> None:
+        self.entitlements[event_id] = (
+            security_id,
+            cash,
+            stock_quantity,
+            split_sellable_quantity,
+        )
+        self.ledger.append(
+            DividendEntitlementRecorded(
+                event_id,
+                security_id,
+                cash,
+                stock_quantity,
+                split_sellable_quantity,
+            )
+        )
+        self._assert_invariants()
+
+    def apply_entitlement_ex_date(self, event_id: str, *, is_split: bool) -> Decimal:
+        security_id, cash, stock, split_sellable = self.entitlements[event_id]
+        self.cash_receivable += cash
+        self.positions[security_id] = self.positions.get(security_id, 0) + stock
+        if split_sellable:
+            self.sellable_quantities[security_id] = (
+                self.sellable_quantities.get(security_id, 0) + split_sellable
+            )
+        self.ledger.append(CashDividendDeclared(event_id, cash))
+        if is_split:
+            self.ledger.append(SplitApplied(event_id, security_id, stock, split_sellable))
+        else:
+            self.ledger.append(StockDistributionApplied(event_id, security_id, stock))
+        self._assert_invariants()
+        return cash
+
+    def pay_entitlement_cash(self, event_id: str) -> None:
+        _, cash, _, _ = self.entitlements[event_id]
+        self.cash_receivable -= cash
+        self.cash_available += cash
+        self.ledger.append(CashDividendPaid(event_id, cash))
+        self._assert_invariants()
+
+    def release_entitlement_stock(self, event_id: str, *, is_split: bool) -> None:
+        if is_split:
+            return
+        security_id, _, stock, _ = self.entitlements[event_id]
+        self.sellable_quantities[security_id] = (
+            self.sellable_quantities.get(security_id, 0) + stock
+        )
+        self.ledger.append(SellableReleased(security_id, stock))
+        self._assert_invariants()
+
+    def record_valuation(self, valuation_date: date, nav: Decimal) -> None:
+        self.ledger.append(ValuationRecorded(valuation_date, nav))
 
     def equity(self, prices: Mapping[str, Decimal]) -> Decimal:
         if any(
