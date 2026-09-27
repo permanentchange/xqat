@@ -8,6 +8,7 @@ from typing import cast
 
 import pyarrow.parquet as pq
 
+from xqatexp.application.run_specs import BacktestRunSpec, DailyDecisionRunSpec
 from xqatexp.backtest.engine import BacktestEngine
 from xqatexp.daily.account_snapshot import parse_account_snapshot
 from xqatexp.daily.advice import DailyAdviceService
@@ -29,11 +30,10 @@ class StrategyWorkflowService:
         self._publisher = ResultArtifactPublisher()
 
     def backtest(self, context: ResolvedRunContext, overwrite: OverwritePolicy) -> Path:
-        if context.start_date is None or context.end_date is None:
-            raise ValueError("CONFIG_VALUE_INVALID: backtest dates required")
+        run = BacktestRunSpec.from_context(context)
         spec = self._strategy_spec(context)
         declaration = spec.declaration(context.parameters)
-        custom = self._custom(context, context.end_date, spec)
+        custom = self._custom(context, run.end_date, spec)
         strategy = spec.create(context.parameters)
         with ResearchSession(
             context.research_artifact_path,
@@ -41,7 +41,7 @@ class StrategyWorkflowService:
             temporary_parent=context.output_path.parent,
         ) as session:
             readiness = ReadinessChecker().check(
-                declaration, session.view(context.end_date), custom
+                declaration, session.view(run.end_date), custom
             )
             if not readiness.is_ready:
                 raise ValueError(f"{readiness.issues[0]}: backtest input is not ready")
@@ -50,8 +50,8 @@ class StrategyWorkflowService:
                 strategy=strategy,
                 parameters=context.parameters,
                 custom=custom,
-                start_date=context.start_date,
-                end_date=context.end_date,
+                start_date=run.start_date,
+                end_date=run.end_date,
                 initial_cash=cast(Decimal, context.execution_assumptions["initial_cash"]),
                 execution_assumptions=context.execution_assumptions,
                 schedule=spec.schedule,
@@ -59,11 +59,10 @@ class StrategyWorkflowService:
         return self._publisher.publish_backtest(context, result, overwrite).path
 
     def daily_target(self, context: ResolvedRunContext, overwrite: OverwritePolicy) -> Path:
-        if context.decision_date is None:
-            raise ValueError("CONFIG_VALUE_INVALID: decision_date required")
+        run = DailyDecisionRunSpec.from_context(context)
         spec = self._strategy_spec(context)
         declaration = spec.declaration(context.parameters)
-        custom = self._custom(context, context.decision_date, spec)
+        custom = self._custom(context, run.decision_date, spec)
         strategy = spec.create(context.parameters)
         previous = (
             load_target(context.previous_target_path)
@@ -75,7 +74,7 @@ class StrategyWorkflowService:
             declaration,
             temporary_parent=context.output_path.parent,
         ) as session:
-            view = session.view(context.decision_date)
+            view = session.view(run.decision_date)
             readiness = ReadinessChecker().check(declaration, view, custom)
             if not readiness.is_ready:
                 raise ValueError(f"{readiness.issues[0]}: daily input is not ready")
@@ -86,7 +85,7 @@ class StrategyWorkflowService:
                 target,
                 etf_id=str(context.parameters["csi300_etf_id"]),
                 maximum_stock_weight=cast(Decimal, context.parameters["single_stock_max_weight"]),
-                next_trade_day=session.next_trading_day(context.decision_date),
+                next_trade_day=session.next_trading_day(run.decision_date),
             )
         return self._publisher.publish_daily_target(
             context, target, (), readiness.limitations, overwrite
