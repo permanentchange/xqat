@@ -54,6 +54,7 @@ class StrategyWorkflowService:
                 end_date=context.end_date,
                 initial_cash=cast(Decimal, context.execution_assumptions["initial_cash"]),
                 execution_assumptions=context.execution_assumptions,
+                schedule=spec.schedule,
             )
         return self._publisher.publish_backtest(context, result, overwrite).path
 
