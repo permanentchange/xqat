@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
-from decimal import ROUND_FLOOR, Decimal
+from decimal import Decimal
 
 from xqatexp.backtest.fees import FeeModel
 from xqatexp.domain.contracts import (
@@ -22,6 +22,7 @@ from xqatexp.domain.enums import (
     TradeAction,
 )
 from xqatexp.domain.issues import Issue
+from xqatexp.portfolio.planning import affordable_quantity, lot_quantity, relative_gap
 from xqatexp.portfolio.rebalance import LotRule
 
 _ACTION_ORDER = {
@@ -78,7 +79,7 @@ class DailyAdviceService:
             amount = managed * weight if managed is not None else None
             theoretical = None
             if amount is not None and price is not None and rule is not None:
-                theoretical = self._lot_quantity(amount, price, rule.buy_lot_size)
+                theoretical = lot_quantity(amount, price, rule.buy_lot_size)
             elif price is None:
                 limitations.add("REFERENCE_PRICE_UNKNOWN")
             current_position = positions.get(security_id)
@@ -393,11 +394,6 @@ class DailyAdviceService:
         return max(account.available_cash - managed * cash_weight, Decimal("0"))
 
     @staticmethod
-    def _lot_quantity(amount: Decimal, price: Decimal, lot_size: int) -> int:
-        lots = (amount / price / lot_size).to_integral_value(rounding=ROUND_FLOOR)
-        return int(lots) * lot_size
-
-    @staticmethod
     def _relative_gap(draft: _Draft, managed: Decimal | None) -> Decimal:
         if managed is None or managed == Decimal("0"):
             return Decimal("0")
@@ -406,7 +402,7 @@ class DailyAdviceService:
         price = draft.price
         if amount is None or current is None or price is None:
             return Decimal("0")
-        return (amount - Decimal(int(current)) * price) / managed
+        return relative_gap(amount, int(current), price, managed)
 
     def _affordable(
         self,
@@ -417,15 +413,12 @@ class DailyAdviceService:
         asset_type: AssetType,
         on_date: date,
     ) -> int:
-        low, high = 0, desired // lot_size
-        while low < high:
-            middle = (low + high + 1) // 2
-            quantity = middle * lot_size
-            fees = self._fees.calculate(
+        return affordable_quantity(
+            desired,
+            lot_size,
+            price,
+            cash,
+            lambda quantity: self._fees.calculate(
                 asset_type, OrderSide.BUY, Decimal(quantity) * price, on_date
-            ).total
-            if Decimal(quantity) * price + fees <= cash:
-                low = middle
-            else:
-                high = middle - 1
-        return low * lot_size
+            ).total,
+        )
