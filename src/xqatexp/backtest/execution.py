@@ -119,6 +119,8 @@ class ExecutionSimulator:
                 status,
                 reason,
                 instruction.reference_price,
+                instruction.instruction_id,
+                instruction.decision_id,
             ),
             reason,
             instruction.requested_quantity - quantity,
