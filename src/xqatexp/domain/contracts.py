@@ -67,10 +67,13 @@ class DataRequirement:
     requirement_id: str
     dataset: str
     fields: tuple[str, ...]
-    date_range: DateRange
+    lookback_trade_days: int
     security_scope: str
     required: bool
     missing_policy: str
+    minimum_coverage: float = 1.0
+    sampling_frequency: str = "DAILY"
+    failure_code: str = "DATA_COVERAGE_INSUFFICIENT"
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +87,7 @@ class StrategyDeclaration:
     required_system_factors: tuple[str, ...]
     required_custom_factors: tuple[str, ...]
     missing_policies: Mapping[str, str]
+    data_requirements: tuple[DataRequirement, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
