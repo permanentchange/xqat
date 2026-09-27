@@ -19,6 +19,7 @@ from xqatexp.strategy.declaration import ETF_FACTOR_IDS, STOCK_FACTOR_IDS, strat
 from xqatexp.strategy.drawdown import DrawdownOverlay, OverlayLevel, rolling_drawdown
 from xqatexp.strategy.market_regime import classify_market
 from xqatexp.strategy.scoring import score_cross_section
+from xqatexp.strategy.weekly_parameters import WeeklyMarketGuardParameters
 
 
 def allocate_budget(
@@ -69,7 +70,9 @@ def select_holdings(
 
 class WeeklyMarketGuardRankStrategy:
     def __init__(self, parameters: Mapping[str, object]) -> None:
-        self.declaration = strategy_declaration(parameters)
+        self.parameters = WeeklyMarketGuardParameters.from_mapping(parameters)
+        self._parameter_values = self.parameters.as_mapping()
+        self.declaration = strategy_declaration(self._parameter_values)
 
     def generate_target(
         self,
@@ -77,6 +80,8 @@ class WeeklyMarketGuardRankStrategy:
         custom: CustomFactorView | None,
         parameters: Mapping[str, object],
     ) -> TargetPortfolio:
+        del parameters
+        parameters = self._parameter_values
         days = tuple(research.trading_days(research.earliest_date, research.decision_date))
         if len(days) < 313:
             raise ValueError("STRATEGY_WARMUP_INSUFFICIENT: at least 313 trading days required")
