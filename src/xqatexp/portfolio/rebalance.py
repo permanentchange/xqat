@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from decimal import ROUND_FLOOR, Decimal
+from decimal import Decimal
 
 from xqatexp.domain.contracts import RebalanceInstruction, TargetPortfolio
 from xqatexp.domain.enums import OrderSide
 from xqatexp.domain.numeric import quantize_fen
+from xqatexp.portfolio.planning import affordable_quantity, lot_quantity, relative_gap
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,10 +49,9 @@ class RebalancePlanner:
             if price is None or price <= 0 or rule is None:
                 continue
             amounts[security_id] = quantize_fen(portfolio_value * weight)
-            lots = (amounts[security_id] / price / rule.buy_lot_size).to_integral_value(
-                rounding=ROUND_FLOOR
+            quantities[security_id] = lot_quantity(
+                amounts[security_id], price, rule.buy_lot_size
             )
-            quantities[security_id] = int(lots) * rule.buy_lot_size
         sells = []
         for security_id, current in current_positions.items():
             target_quantity = quantities.get(security_id, 0)
@@ -92,7 +92,9 @@ class RebalancePlanner:
                 gap = amounts[security_id] - Decimal(current) * reference_prices[security_id]
                 buy_candidates.append(
                     (
-                        gap / portfolio_value,
+                        relative_gap(
+                            amounts[security_id], current, reference_prices[security_id], portfolio_value
+                        ),
                         target_ranks[security_id] or 10**9,
                         security_id,
                         target_quantity - current,
@@ -127,16 +129,10 @@ class RebalancePlanner:
     def _affordable(
         self, security_id: str, desired: int, lot_size: int, price: Decimal, cash: Decimal
     ) -> int:
-        high = desired // lot_size
-        low = 0
-        while low < high:
-            middle = (low + high + 1) // 2
-            quantity = middle * lot_size
-            cost = Decimal(quantity) * price + self._fee(
-                security_id, OrderSide.BUY, quantity, price
-            )
-            if cost <= cash:
-                low = middle
-            else:
-                high = middle - 1
-        return low * lot_size
+        return affordable_quantity(
+            desired,
+            lot_size,
+            price,
+            cash,
+            lambda quantity: self._fee(security_id, OrderSide.BUY, quantity, price),
+        )
