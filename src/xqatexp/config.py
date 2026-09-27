@@ -12,6 +12,7 @@ from typing import cast
 from xqatexp.domain.contracts import AnalysisPeriod, CustomFactorInput, ResolvedRunContext
 from xqatexp.domain.enums import RunMode
 from xqatexp.security import validate_disjoint_paths
+from xqatexp.strategy.registry import resolve_strategy_spec
 
 
 class ConfigError(ValueError):
@@ -216,6 +217,12 @@ def resolve_config(
         mode = RunMode(str(cli_values.get("mode") or raw["mode"]))
     except (KeyError, ValueError) as error:
         raise ConfigError("CONFIG_VALUE_INVALID: mode is invalid") from error
+    strategy_id = str(raw.get("strategy_id", "weekly_market_guard_rank_v1"))
+    strategy_version = str(raw.get("strategy_version", "1.0.0"))
+    try:
+        resolve_strategy_spec(strategy_id, strategy_version)
+    except ValueError as error:
+        raise ConfigError(f"CONFIG_VALUE_INVALID: {error}") from error
     strategy_raw = raw.get("strategy", {})
     if not isinstance(strategy_raw, Mapping):
         raise ConfigError("CONFIG_SCHEMA_INVALID: strategy must be a table")
@@ -236,6 +243,10 @@ def resolve_config(
         execution["max_volume_participation"], "max_volume_participation"
     )
     execution["dividend_tax_rate"] = _decimal(execution["dividend_tax_rate"], "dividend_tax_rate")
+    if str(execution["price_model"]) != "NEXT_OPEN":
+        raise ConfigError("CONFIG_VALUE_INVALID: unsupported price_model")
+    if str(execution["fee_schedule_id"]) != "cn_cash_market_default_v1":
+        raise ConfigError("CONFIG_VALUE_INVALID: unsupported fee_schedule_id")
     if cast(Decimal, execution["initial_cash"]) <= 0:
         raise ConfigError("CONFIG_VALUE_INVALID: initial_cash must be positive")
     if not Decimal("0") < cast(Decimal, execution["max_volume_participation"]) <= 1:
@@ -318,8 +329,8 @@ def resolve_config(
     return ResolvedRunContext(
         run_id=run_id,
         mode=mode,
-        strategy_id=str(raw.get("strategy_id", "weekly_market_guard_rank_v1")),
-        strategy_version=str(raw.get("strategy_version", "1.0.0")),
+        strategy_id=strategy_id,
+        strategy_version=strategy_version,
         parameters=parameters,
         research_artifact_path=research,
         research_artifact_sha256=_manifest_sha(research),
