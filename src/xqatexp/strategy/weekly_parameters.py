@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import cast
 
@@ -124,3 +125,81 @@ def normalize_weekly_parameters(
     if name is not None and not (Decimal("0") < factor_weight <= Decimal("0.20")):
         raise ValueError("CONFIG_VALUE_INVALID: custom_factor_weight must be in (0, 0.20]")
     return result
+
+
+@dataclass(frozen=True, slots=True)
+class WeeklyMarketGuardParameters:
+    csi300_etf_id: str
+    entry_rank: int
+    exit_rank: int
+    min_holding_weeks: int
+    max_holding_weeks: int
+    min_listing_trade_days: int
+    min_size_percentile: Decimal
+    min_amount_percentile: Decimal
+    strong_stock_count: int
+    neutral_stock_count: int
+    single_stock_min_weight: Decimal
+    single_stock_max_weight: Decimal
+    caution_drawdown: Decimal
+    defensive_drawdown: Decimal
+    recovery_drawdown: Decimal
+    recovery_weeks: int
+    custom_factor_name: str | None
+    custom_factor_weight: Decimal
+    custom_factor_direction: str
+    custom_factor_missing_policy: str
+    score_weights: Mapping[str, Decimal]
+
+    @classmethod
+    def from_mapping(cls, values: Mapping[str, object]) -> WeeklyMarketGuardParameters:
+        return cls(
+            csi300_etf_id=str(values["csi300_etf_id"]),
+            entry_rank=int(cast(int, values["entry_rank"])),
+            exit_rank=int(cast(int, values["exit_rank"])),
+            min_holding_weeks=int(cast(int, values["min_holding_weeks"])),
+            max_holding_weeks=int(cast(int, values["max_holding_weeks"])),
+            min_listing_trade_days=int(cast(int, values["min_listing_trade_days"])),
+            min_size_percentile=cast(Decimal, values["min_size_percentile"]),
+            min_amount_percentile=cast(Decimal, values["min_amount_percentile"]),
+            strong_stock_count=int(cast(int, values["strong_stock_count"])),
+            neutral_stock_count=int(cast(int, values["neutral_stock_count"])),
+            single_stock_min_weight=cast(Decimal, values["single_stock_min_weight"]),
+            single_stock_max_weight=cast(Decimal, values["single_stock_max_weight"]),
+            caution_drawdown=cast(Decimal, values["caution_drawdown"]),
+            defensive_drawdown=cast(Decimal, values["defensive_drawdown"]),
+            recovery_drawdown=cast(Decimal, values["recovery_drawdown"]),
+            recovery_weeks=int(cast(int, values["recovery_weeks"])),
+            custom_factor_name=(
+                None if values["custom_factor_name"] is None else str(values["custom_factor_name"])
+            ),
+            custom_factor_weight=cast(Decimal, values["custom_factor_weight"]),
+            custom_factor_direction=str(values["custom_factor_direction"]),
+            custom_factor_missing_policy=str(values["custom_factor_missing_policy"]),
+            score_weights=cast(Mapping[str, Decimal], values["score_weights"]),
+        )
+
+    def as_mapping(self) -> dict[str, object]:
+        return {
+            "csi300_etf_id": self.csi300_etf_id,
+            "entry_rank": self.entry_rank,
+            "exit_rank": self.exit_rank,
+            "min_holding_weeks": self.min_holding_weeks,
+            "max_holding_weeks": self.max_holding_weeks,
+            "min_listing_trade_days": self.min_listing_trade_days,
+            "min_size_percentile": self.min_size_percentile,
+            "min_amount_percentile": self.min_amount_percentile,
+            "strong_stock_count": self.strong_stock_count,
+            "neutral_stock_count": self.neutral_stock_count,
+            "single_stock_min_weight": self.single_stock_min_weight,
+            "single_stock_max_weight": self.single_stock_max_weight,
+            "caution_drawdown": self.caution_drawdown,
+            "defensive_drawdown": self.defensive_drawdown,
+            "recovery_drawdown": self.recovery_drawdown,
+            "recovery_weeks": self.recovery_weeks,
+            "custom_factor_name": self.custom_factor_name,
+            "custom_factor_weight": self.custom_factor_weight,
+            "custom_factor_direction": self.custom_factor_direction,
+            "custom_factor_missing_policy": self.custom_factor_missing_policy,
+            "score_weights": dict(self.score_weights),
+        }
