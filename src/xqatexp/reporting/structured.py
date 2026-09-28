@@ -14,7 +14,14 @@ from xqatexp.domain.contracts import (
     TradeAdvice,
 )
 from xqatexp.domain.issues import Issue
-from xqatexp.strategy.intents import StrategyDecision, TradeIntentDecision
+from xqatexp.strategy.intents import (
+    CurrentPositionFraction,
+    FixedNotional,
+    FullPosition,
+    InitialCapitalFraction,
+    StrategyDecision,
+    TradeIntentDecision,
+)
 
 
 def resolved_context_value(context: ResolvedRunContext) -> dict[str, object]:
@@ -53,6 +60,11 @@ def resolved_context_value(context: ResolvedRunContext) -> dict[str, object]:
         "previous_target_input": (
             {"alias": "previous-target", "provided": True}
             if context.previous_target_path is not None
+            else None
+        ),
+        "strategy_state_input": (
+            {"alias": "strategy-state", "provided": True}
+            if context.strategy_state_path is not None
             else None
         ),
         "output_alias": context.output_path.name,
@@ -132,6 +144,39 @@ def strategy_diagnostics_value(
             }
         )
     return {"schema_version": "1.0", "decisions": values}
+
+
+def trade_intents_value(decision: TradeIntentDecision) -> dict[str, object]:
+    def sizing_value(sizing: object) -> dict[str, object]:
+        if isinstance(sizing, FixedNotional):
+            return {"kind": "FIXED_NOTIONAL", "value": sizing.amount}
+        if isinstance(sizing, InitialCapitalFraction):
+            return {"kind": "INITIAL_CAPITAL_FRACTION", "value": sizing.fraction}
+        if isinstance(sizing, CurrentPositionFraction):
+            return {"kind": "CURRENT_POSITION_FRACTION", "value": sizing.fraction}
+        if isinstance(sizing, FullPosition):
+            return {"kind": "FULL_POSITION", "value": None}
+        raise TypeError(f"unsupported intent sizing: {type(sizing)!r}")
+
+    return {
+        "schema_version": "1.0",
+        "decision_id": decision.decision_id,
+        "strategy_id": decision.strategy_id,
+        "strategy_version": decision.strategy_version,
+        "decision_date": decision.decision_date.isoformat(),
+        "effective_from": decision.effective_from.isoformat(),
+        "intents": [
+            {
+                "intent_id": item.intent_id,
+                "security_id": item.security_id,
+                "side": item.side,
+                "sizing": sizing_value(item.sizing),
+                "reason_codes": list(item.reason_codes),
+                "priority": item.priority,
+            }
+            for item in decision.intents
+        ],
+    }
 
 
 def issue_value(issue: Issue) -> dict[str, object]:
