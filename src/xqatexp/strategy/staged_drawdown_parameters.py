@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
+import re
 from typing import cast
 
 STAGED_DRAWDOWN_DEFAULTS: dict[str, object] = {
@@ -56,6 +57,8 @@ def normalize_staged_drawdown_parameters(
     security_id = str(result.get("security_id", "")).strip()
     if not security_id:
         raise ValueError("CONFIG_VALUE_INVALID: security_id is required")
+    if re.fullmatch(r"[0-9]{6}\.(SH|SZ)", security_id) is None:
+        raise ValueError("CONFIG_VALUE_INVALID: security_id must be 000000.SH/SZ")
     result["security_id"] = security_id
 
     result["lookback_trade_days"] = _integer(
