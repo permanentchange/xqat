@@ -5,7 +5,7 @@ from decimal import Decimal
 import pytest
 
 from xqatexp.domain.contracts import TargetPortfolio, TargetPosition
-from xqatexp.domain.enums import AssetType, MarketRegime
+from xqatexp.domain.enums import AssetType
 from xqatexp.portfolio.validation import PortfolioValidationError, validate_target
 
 
@@ -15,12 +15,16 @@ def target(weight=Decimal("0.04"), cash=Decimal("0.96")):
         "1",
         date(2026, 9, 4),
         date(2026, 9, 7),
-        MarketRegime.NEUTRAL,
-        Decimal("0"),
-        60,
-        60,
-        "NONE",
-        (TargetPosition("600000.SH", AssetType.A_SHARE, weight, 1, 90.0, None, (), 1),),
+        (
+            TargetPosition(
+                "600000.SH",
+                AssetType.A_SHARE,
+                weight,
+                None,
+                (),
+                1,
+            ),
+        ),
         (),
         cash,
         (),
