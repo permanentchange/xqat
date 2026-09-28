@@ -68,8 +68,6 @@ class ResultArtifactPublisher:
         self._schemas.validate_json("resolved_config", config)
         self._schemas.validate_json("target_portfolio", target_data)
         self._schemas.validate_json("strategy_diagnostics", diagnostics_data)
-        if state_data is not None:
-            self._schemas.validate_json("strategy_state", state_data)
         self._schemas.validate_json("issues", issue_data)
 
         def build(staging: Path) -> None:
@@ -78,11 +76,6 @@ class ResultArtifactPublisher:
                 "target_portfolio.json": canonical_json_bytes(target_data),
                 "target_positions.csv": target_positions_csv(target),
                 "strategy_diagnostics.json": canonical_json_bytes(diagnostics_data),
-                **(
-                    {}
-                    if state_data is None
-                    else {"strategy_state.json": canonical_json_bytes(state_data)}
-                ),
                 "issues.json": canonical_json_bytes(issue_data),
                 "report.md": daily_target_markdown(target_data).encode("utf-8"),
             }
@@ -210,6 +203,8 @@ class ResultArtifactPublisher:
         self._schemas.validate_json("resolved_config", config)
         self._schemas.validate_json("metrics", metrics)
         self._schemas.validate_json("strategy_diagnostics", diagnostics_data)
+        if state_data is not None:
+            self._schemas.validate_json("strategy_state", state_data)
         self._schemas.validate_json("issues", issue_data)
 
         def build(staging: Path) -> None:
@@ -218,6 +213,11 @@ class ResultArtifactPublisher:
                 "metrics.json": canonical_json_bytes(metrics),
                 "period_metrics.csv": assembly.period_metrics_csv,
                 "strategy_diagnostics.json": canonical_json_bytes(diagnostics_data),
+                **(
+                    {}
+                    if state_data is None
+                    else {"strategy_state.json": canonical_json_bytes(state_data)}
+                ),
                 "issues.json": canonical_json_bytes(issue_data),
                 "report.md": backtest_markdown(metrics, len(result.trades)).encode("utf-8"),
             }
