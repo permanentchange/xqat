@@ -238,3 +238,43 @@ def test_stateful_daily_decision_publishes_explicit_state_and_intents(tmp_path: 
         "issues.json",
         "report.md",
     }
+
+
+
+def test_backtest_publishes_final_strategy_state_when_present(tmp_path: Path) -> None:
+    result = BacktestEngine().run(
+        data=_Data(),
+        strategy=_Strategy(),
+        parameters={},
+        custom=None,
+        start_date=date(2026, 9, 4),
+        end_date=date(2026, 9, 15),
+        initial_cash=Decimal("10000"),
+        execution_assumptions={
+            "slippage_bps": Decimal("0"),
+            "max_volume_participation": Decimal("0.10"),
+        },
+    )
+    result = replace(
+        result,
+        strategy_state=StrategyStateReducer(
+            "weekly_market_guard_rank_v1",
+            "1.0.0",
+        ).initial(Decimal("10000")),
+    )
+    context = replace(
+        _context(tmp_path),
+        mode=RunMode.BACKTEST,
+        decision_date=None,
+        start_date=date(2026, 9, 4),
+        end_date=date(2026, 9, 15),
+        output_path=tmp_path / "stateful-backtest",
+    )
+
+    published = ResultArtifactPublisher().publish_backtest(
+        context,
+        result,
+        OverwritePolicy.ERROR,
+    )
+    opened = ArtifactReader().open(published.path)
+    assert "strategy_state.json" in opened.verified_files
