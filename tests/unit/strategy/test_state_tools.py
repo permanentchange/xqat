@@ -48,3 +48,29 @@ def test_state_tools_reject_unknown_strategy_and_unconfirmed_zero_fill() -> None
             quantity=0,
             execution_price=Decimal("10"),
         )
+
+
+
+def test_state_tools_reject_fill_older_than_current_state() -> None:
+    state = initialize_strategy_state(
+        "staged_drawdown_v1",
+        "1.0.0",
+        Decimal("100000"),
+    )
+    state = apply_confirmed_fill(
+        state,
+        execution_date=date(2026, 9, 8),
+        security_id="600000.SH",
+        side=OrderSide.BUY,
+        quantity=1000,
+        execution_price=Decimal("10"),
+    )
+    with pytest.raises(ValueError, match="precedes state as_of"):
+        apply_confirmed_fill(
+            state,
+            execution_date=date(2026, 9, 7),
+            security_id="600000.SH",
+            side=OrderSide.BUY,
+            quantity=1000,
+            execution_price=Decimal("9"),
+        )
