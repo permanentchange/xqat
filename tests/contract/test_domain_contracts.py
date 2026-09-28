@@ -49,38 +49,39 @@ def test_target_position_is_immutable_and_uses_decimal_weight() -> None:
         security_id="600000.SH",
         asset_type=enums.AssetType.A_SHARE,
         target_weight=Decimal("0.04"),
-        rank=1,
-        score=0.875,
         transition=None,
         explanation_codes=("ENTRY_RANK",),
-        holding_age_weeks=0,
+        planning_priority=1,
     )
     assert position.target_weight == Decimal("0.04")
     with pytest.raises(FrozenInstanceError):
         position.target_weight = Decimal("0.05")
 
 
-def test_target_portfolio_records_rolling_drawdown_contract() -> None:
-    """Catches loss of the approved 60-trading-day drawdown metadata."""
+def test_target_portfolio_is_strategy_agnostic_and_diagnostics_are_separate() -> None:
+    """Catches strategy-specific metadata leaking back into the common target contract."""
     contracts = _load("xqatexp.domain.contracts")
-    enums = _load("xqatexp.domain.enums")
     target = contracts.TargetPortfolio(
         strategy_id="weekly_market_guard_rank_v1",
         strategy_version="1.0.0",
         decision_date=date(2026, 9, 4),
         effective_from=date(2026, 9, 7),
-        market_regime=enums.MarketRegime.WEAK,
-        theoretical_drawdown=Decimal("-0.13"),
-        drawdown_window_trade_days=60,
-        drawdown_observations=60,
-        drawdown_overlay_level="DEFENSIVE",
         positions=(),
         transition_records=(),
         cash_weight=Decimal("1"),
         explanations=(),
     )
-    assert target.drawdown_window_trade_days == 60
-    assert target.drawdown_observations == 60
+    diagnostics = contracts.StrategyDiagnostics(
+        "weekly_market_guard_rank_v1",
+        "1.0",
+        {
+            "market_regime": "WEAK",
+            "theoretical_drawdown": Decimal("-0.13"),
+            "drawdown_window_trade_days": 60,
+        },
+    )
+    assert not hasattr(target, "market_regime")
+    assert diagnostics.values["drawdown_window_trade_days"] == 60
 
 
 def test_issue_is_immutable_and_keeps_serializable_evidence() -> None:
