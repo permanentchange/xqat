@@ -11,21 +11,18 @@ def daily_target_markdown(value: Mapping[str, object]) -> str:
         "",
         f"- 决策日: {value['decision_date']}",
         f"- 生效日: {value['effective_from']}",
-        f"- 市场状态: {value['market_regime']}",
-        f"- 理论组合回撤: {value['theoretical_drawdown']}",
         f"- 现金权重: {value['cash_weight']}",
         "",
         "## 目标持仓",
         "",
-        "| 证券 | 资产类型 | 目标权重 | 排名 | 变化 |",
+        "| 证券 | 资产类型 | 目标权重 | 规划优先级 | 变化 |",
         "|---|---|---:|---:|---|",
     ]
     for position in positions:
         assert isinstance(position, dict)
         lines.append(
-            "| {security_id} | {asset_type} | {target_weight} | {rank} | {transition} |".format(
-                **position
-            )
+            "| {security_id} | {asset_type} | {target_weight} | "
+            "{planning_priority} | {transition} |".format(**position)
         )
     lines.extend(
         [
@@ -40,6 +37,7 @@ def daily_target_markdown(value: Mapping[str, object]) -> str:
 
 
 def daily_advice_markdown(target: Mapping[str, object], advice: Mapping[str, object]) -> str:
+    del target
     items = advice["items"]
     assert isinstance(items, list)
     lines = [
@@ -47,7 +45,6 @@ def daily_advice_markdown(target: Mapping[str, object], advice: Mapping[str, obj
         "",
         f"- 决策日: {advice['decision_date']}",
         f"- 生效日: {advice['effective_from']}",
-        f"- 市场状态: {target['market_regime']}",
         "",
         "## 参考建议",
         "",
