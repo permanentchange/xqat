@@ -98,6 +98,10 @@ def _build_parser() -> argparse.ArgumentParser:
     daily_target = daily_commands.add_parser("target")
     _add_run_arguments(daily_target, dates="decision")
     daily_target.add_argument("--previous-target", type=Path)
+    daily_decision = daily_commands.add_parser("decide")
+    _add_run_arguments(daily_decision, dates="decision")
+    daily_decision.add_argument("--state", required=True, type=Path)
+    daily_decision.add_argument("--account", type=Path)
     daily_advice = daily_commands.add_parser("advise")
     daily_advice.add_argument("--config", required=True, type=Path)
     daily_advice.add_argument("--target", required=True, type=Path)
@@ -182,6 +186,7 @@ def _validate_cli_path_graph(args: argparse.Namespace) -> None:
         "target",
         "account",
         "previous_target",
+        "state",
         "input",
         "file",
         "research",
@@ -206,7 +211,7 @@ def _validate_cli_path_graph(args: argparse.Namespace) -> None:
             config_value = tomllib.loads(config_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, tomllib.TOMLDecodeError):
             config_value = {}
-        for name in ("research_artifact", "account_snapshot", "previous_target"):
+        for name in ("research_artifact", "account_snapshot", "previous_target", "strategy_state"):
             value = config_value.get(name)
             if value:
                 inputs[f"config.{name}"] = Path(str(value))
@@ -316,6 +321,26 @@ def _run_strategy(args: argparse.Namespace) -> int:
             output = StrategyWorkflowService().daily_target(
                 context, OverwritePolicy(args.existing.upper())
             )
+        elif args.daily_command == "decide":
+            cli_values = {
+                "mode": "DAILY_DECISION",
+                "output": args.output,
+                "decision_date": args.decision_date,
+                "strategy_state": args.state,
+            }
+            context = resolve_config(cli_values, args.config, run_id=run_id, generated_at=now)
+            custom = _custom_inputs(args.custom_factor)
+            context = replace(
+                context,
+                custom_factor_inputs=custom or context.custom_factor_inputs,
+                strategy_state_path=args.state,
+                account_snapshot_path=args.account or context.account_snapshot_path,
+            )
+            output = StrategyWorkflowService().daily_decision(
+                context,
+                OverwritePolicy(args.existing.upper()),
+                now,
+            )
         else:
             target = load_target(args.target)
             cli_values = {
@@ -364,6 +389,8 @@ def _publish_failure_if_requested(
         if args.command == "backtest"
         else "DAILY_TARGET"
         if args.daily_command == "target"
+        else "DAILY_DECISION"
+        if args.daily_command == "decide"
         else "DAILY_ADVICE"
     )
     references = []
