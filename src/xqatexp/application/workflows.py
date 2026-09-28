@@ -14,7 +14,7 @@ from xqatexp.daily.account_snapshot import parse_account_snapshot
 from xqatexp.daily.advice import DailyAdviceService
 from xqatexp.daily.target import DailyTargetService
 from xqatexp.domain.contracts import AccountSnapshot, ResolvedRunContext
-from xqatexp.domain.enums import OverwritePolicy
+from xqatexp.domain.enums import OverwritePolicy, StateRequirement
 from xqatexp.portfolio.rebalance import LotRule
 from xqatexp.portfolio.validation import validate_target
 from xqatexp.reporting.publisher import ResultArtifactPublisher
@@ -23,6 +23,7 @@ from xqatexp.research.custom_factors import CsvCustomFactorView
 from xqatexp.research.readiness import ReadinessChecker
 from xqatexp.research.session import ResearchSession
 from xqatexp.strategy.registry import StrategySpec, resolve_strategy_spec
+from xqatexp.strategy.state import StrategyStateReducer
 
 
 class StrategyWorkflowService:
@@ -53,6 +54,12 @@ class StrategyWorkflowService:
                 initial_cash=cast(Decimal, context.execution_assumptions["initial_cash"]),
                 execution_assumptions=context.execution_assumptions,
                 schedule=spec.schedule,
+                state_reducer=(
+                    StrategyStateReducer(context.strategy_id, context.strategy_version)
+                    if declaration.state_requirement
+                    is StateRequirement.CONFIRMED_EXECUTION_STATE
+                    else None
+                ),
             )
         return self._publisher.publish_backtest(context, result, overwrite).path
 
