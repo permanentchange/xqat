@@ -40,45 +40,27 @@ class CorporateActionProcessor:
         split_sellable = Decimal(account.sellable_quantities.get(action.security_id, 0)) * ratio
         if split_sellable != split_sellable.to_integral_value():
             raise ValueError("BACKTEST_CORPORATE_ACTION_UNSUPPORTED: fractional sellable split")
-        account.entitlements[action.event_id] = (
-            action.security_id,
-            Decimal(quantity) * action.cash_per_share_after_tax,
-            int(stock),
-            int(split_sellable) if action.action_type == "SPLIT" else 0,
+        account.record_entitlement(
+            event_id=action.event_id,
+            security_id=action.security_id,
+            cash=Decimal(quantity) * action.cash_per_share_after_tax,
+            stock_quantity=int(stock),
+            split_sellable_quantity=(
+                int(split_sellable) if action.action_type == "SPLIT" else 0
+            ),
         )
-        account.ledger.append(("DIVIDEND_ENTITLEMENT", action.event_id))
 
     def apply_ex_date(self, account: SimulatedAccount, action: DividendAction) -> Decimal:
-        security_id, cash, stock, split_sellable = account.entitlements[action.event_id]
-        account.cash_receivable += cash
-        account.positions[security_id] = account.positions.get(security_id, 0) + stock
-        if split_sellable:
-            account.sellable_quantities[security_id] = (
-                account.sellable_quantities.get(security_id, 0) + split_sellable
-            )
-        account.ledger.append(("CASH_DIVIDEND_DECLARED", cash))
-        account.ledger.append(
-            (
-                "SPLIT_APPLIED" if action.action_type == "SPLIT" else "STOCK_DISTRIBUTION_APPLIED",
-                stock,
-            )
+        return account.apply_entitlement_ex_date(
+            action.event_id,
+            is_split=action.action_type == "SPLIT",
         )
-        account._assert_invariants()
-        return cash
 
     def apply_pay_date(self, account: SimulatedAccount, action: DividendAction) -> None:
-        _, cash, _, _ = account.entitlements[action.event_id]
-        account.cash_receivable -= cash
-        account.cash_available += cash
-        account.ledger.append(("CASH_DIVIDEND_PAID", cash))
-        account._assert_invariants()
+        account.pay_entitlement_cash(action.event_id)
 
     def apply_stock_list_date(self, account: SimulatedAccount, action: DividendAction) -> None:
-        security_id, _, stock, _ = account.entitlements[action.event_id]
-        if action.action_type == "SPLIT":
-            return
-        account.sellable_quantities[security_id] = (
-            account.sellable_quantities.get(security_id, 0) + stock
+        account.release_entitlement_stock(
+            action.event_id,
+            is_split=action.action_type == "SPLIT",
         )
-        account.ledger.append(("SELLABLE_RELEASED", (security_id, stock)))
-        account._assert_invariants()
