@@ -127,6 +127,14 @@ class ExecutionSimulator:
         )
 
     @staticmethod
+    def modeled_price(
+        side: OrderSide,
+        facts: ExecutionFacts,
+        slippage_bps: Decimal,
+    ) -> Decimal | None:
+        return ExecutionSimulator._price(side, facts, slippage_bps)
+
+    @staticmethod
     def _price(side: OrderSide, facts: ExecutionFacts, slippage_bps: Decimal) -> Decimal | None:
         direction = Decimal("1") if side is OrderSide.BUY else Decimal("-1")
         candidate = facts.open_raw * (Decimal("1") + direction * slippage_bps / 10_000)
