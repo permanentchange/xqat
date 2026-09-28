@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xqatexp.local/schemas/trade_intents-1.0.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "decision_id",
+    "strategy_id",
+    "strategy_version",
+    "decision_date",
+    "effective_from",
+    "intents"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "decision_id": { "type": "string", "minLength": 1 },
+    "strategy_id": { "type": "string", "minLength": 1 },
+    "strategy_version": { "type": "string", "minLength": 1 },
+    "decision_date": { "type": "string", "format": "date" },
+    "effective_from": { "type": "string", "format": "date" },
+    "intents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent_id",
+          "security_id",
+          "side",
+          "sizing",
+          "reason_codes",
+          "priority"
+        ],
+        "properties": {
+          "intent_id": { "type": "string", "minLength": 1 },
+          "security_id": { "type": "string", "pattern": "^[0-9]{6}\\.(SH|SZ)$" },
+          "side": { "enum": ["BUY", "SELL"] },
+          "sizing": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "value"],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "FIXED_NOTIONAL",
+                  "INITIAL_CAPITAL_FRACTION",
+                  "CURRENT_POSITION_FRACTION",
+                  "FULL_POSITION"
+                ]
+              },
+              "value": { "type": ["number", "null"], "exclusiveMinimum": 0 }
+            }
+          },
+          "reason_codes": { "type": "array", "items": { "type": "string" } },
+          "priority": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}
