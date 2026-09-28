@@ -36,6 +36,45 @@ def daily_target_markdown(value: Mapping[str, object]) -> str:
     return "\n".join(lines)
 
 
+def daily_decision_markdown(value: Mapping[str, object]) -> str:
+    intents = value["intents"]
+    assert isinstance(intents, list)
+    lines = [
+        "# 每日策略决策",
+        "",
+        f"- 决策日: {value['decision_date']}",
+        f"- 生效日: {value['effective_from']}",
+        "",
+        "## Trade Intents",
+        "",
+        "| 证券 | 方向 | Sizing | 优先级 | 原因 |",
+        "|---|---|---|---:|---|",
+    ]
+    for item in intents:
+        assert isinstance(item, dict)
+        sizing = item["sizing"]
+        assert isinstance(sizing, dict)
+        sizing_text = str(sizing["kind"])
+        if sizing["value"] is not None:
+            sizing_text += f"={sizing['value']}"
+        reasons = item["reason_codes"]
+        assert isinstance(reasons, list)
+        lines.append(
+            f"| {item['security_id']} | {item['side']} | {sizing_text} | "
+            f"{item['priority']} | {';'.join(str(value) for value in reasons)} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## 状态说明",
+            "",
+            "本结果只使用显式 StrategyStateSnapshot 产生决策，不根据历史建议推测成交。",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def daily_advice_markdown(target: Mapping[str, object], advice: Mapping[str, object]) -> str:
     del target
     items = advice["items"]
