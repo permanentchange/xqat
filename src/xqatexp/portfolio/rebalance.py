@@ -40,7 +40,7 @@ class RebalancePlanner:
         cash_budget: Decimal,
     ) -> RebalancePlan:
         target_weights = {item.security_id: item.target_weight for item in target.positions}
-        target_ranks = {item.security_id: item.rank for item in target.positions}
+        target_priorities = {item.security_id: item.planning_priority for item in target.positions}
         amounts: dict[str, Decimal] = {}
         quantities: dict[str, int] = {}
         for security_id, weight in target_weights.items():
@@ -95,7 +95,7 @@ class RebalancePlanner:
                             reference_prices[security_id],
                             portfolio_value,
                         ),
-                        target_ranks[security_id] or 10**9,
+                        target_priorities[security_id] or 10**9,
                         security_id,
                         target_quantity - current,
                     )
