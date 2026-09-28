@@ -14,6 +14,7 @@ from xqatexp.domain.contracts import (
     TradeAdvice,
 )
 from xqatexp.domain.issues import Issue
+from xqatexp.strategy.intents import StrategyDecision, TradeIntentDecision
 
 
 def resolved_context_value(context: ResolvedRunContext) -> dict[str, object]:
@@ -96,30 +97,41 @@ def target_value(target: TargetPortfolio) -> dict[str, object]:
 
 
 def strategy_diagnostics_value(
-    decisions: Sequence[AllocationDecision],
+    decisions: Sequence[StrategyDecision],
 ) -> dict[str, object]:
-    return {
-        "schema_version": "1.0",
-        "decisions": [
+    values = []
+    for decision in decisions:
+        if isinstance(decision, TradeIntentDecision):
+            strategy_id = decision.strategy_id
+            strategy_version = decision.strategy_version
+            decision_date = decision.decision_date
+            effective_from = decision.effective_from
+            diagnostics = decision.diagnostics
+        else:
+            strategy_id = decision.target.strategy_id
+            strategy_version = decision.target.strategy_version
+            decision_date = decision.target.decision_date
+            effective_from = decision.target.effective_from
+            diagnostics = decision.diagnostics
+        values.append(
             {
                 "decision_id": decision.decision_id,
-                "strategy_id": decision.target.strategy_id,
-                "strategy_version": decision.target.strategy_version,
-                "decision_date": decision.target.decision_date.isoformat(),
-                "effective_from": decision.target.effective_from.isoformat(),
+                "strategy_id": strategy_id,
+                "strategy_version": strategy_version,
+                "decision_date": decision_date.isoformat(),
+                "effective_from": effective_from.isoformat(),
                 "diagnostics": (
                     None
-                    if decision.diagnostics is None
+                    if diagnostics is None
                     else {
-                        "schema_id": decision.diagnostics.schema_id,
-                        "schema_version": decision.diagnostics.schema_version,
-                        "values": dict(decision.diagnostics.values),
+                        "schema_id": diagnostics.schema_id,
+                        "schema_version": diagnostics.schema_version,
+                        "values": dict(diagnostics.values),
                     }
                 ),
             }
-            for decision in decisions
-        ],
-    }
+        )
+    return {"schema_version": "1.0", "decisions": values}
 
 
 def issue_value(issue: Issue) -> dict[str, object]:
