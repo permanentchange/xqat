@@ -324,7 +324,7 @@ StrategyState 与 AccountSnapshot 做一致性检查，冲突必须显式告警�
 - [x] Phase 4：Decision Schedule。
 - [x] Phase 5：Requirement-driven Declaration。
 - [x] Phase 6：Requirement-driven Readiness。
-- [ ] Phase 7：Generic TargetPortfolio + Strategy Diagnostics。当前只建立了 `StrategyDiagnostics` / `AllocationDecision` 外壳，公共 `TargetPortfolio` 与 schema 仍包含 weekly strategy 专属字段。
+- [x] Phase 7：Generic TargetPortfolio + Strategy Diagnostics。公共 Target 已移除 weekly 专属字段；writer 使用 target schema v2，reader 保留 v1 兼容；Daily Target / Backtest 输出独立 `strategy_diagnostics.json`。Linux 主 CI 已通过完整离线验证。
 - [x] Phase 8：Portfolio Validation 分层。
 - [x] Phase 9：Backtest / Daily 共享 Portfolio Planning primitives。
 - [x] Phase 10：StrategyDecision（已建立 deterministic decision id 与 `AllocationDecision`）。
