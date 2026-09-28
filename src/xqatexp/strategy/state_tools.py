@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+
 from xqatexp.backtest.account_events import TradeFilled
 from xqatexp.domain.contracts import ExecutionFees, ExecutionRecord
 from xqatexp.domain.enums import FillStatus, OrderSide
 from xqatexp.strategy.registry import resolve_strategy_spec
 from xqatexp.strategy.state import StrategyStateReducer, StrategyStateSnapshot
-from xqatexp.strategy.state_io import load_strategy_state, strategy_state_value
+from xqatexp.strategy.state_io import load_strategy_state
 
 
 def initialize_strategy_state(
@@ -54,7 +55,6 @@ def apply_confirmed_fill(
     )
     reducer = StrategyStateReducer(state.strategy_id, state.strategy_version)
     return reducer.apply(state, TradeFilled(record))
-
 
 
 __all__ = [
