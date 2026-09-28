@@ -17,6 +17,7 @@ from xqatexp.application.services import SelfCheckService
 from xqatexp.application.workflows import StrategyWorkflowService
 from xqatexp.artifacts.manifest import canonical_json_bytes
 from xqatexp.artifacts.publisher import ArtifactPublishError
+from xqatexp.artifacts.schemas import SchemaRegistry
 from xqatexp.artifacts.readers import ArtifactReader
 from xqatexp.config import resolve_config
 from xqatexp.domain.contracts import CustomFactorInput
@@ -307,7 +308,9 @@ def _run_state(args: argparse.Namespace) -> int:
             )
         else:
             return 10
-        _write_new(args.output, canonical_json_bytes(strategy_state_value(state)))
+        state_value = strategy_state_value(state)
+        SchemaRegistry().validate_json("strategy_state", state_value)
+        _write_new(args.output, canonical_json_bytes(state_value))
         print(f"STRATEGY_STATE_WRITTEN output={args.output}")
         return 0
     except ArtifactPublishError as error:
