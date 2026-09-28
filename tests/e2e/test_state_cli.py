@@ -60,7 +60,6 @@ def test_state_cli_initializes_and_applies_confirmed_fill(tmp_path) -> None:
     assert position.remaining_cost_basis == Decimal("10005")
 
 
-
 def test_state_cli_applies_confirmed_stock_adjustment(tmp_path) -> None:
     initial = tmp_path / "initial.json"
     assert main(
