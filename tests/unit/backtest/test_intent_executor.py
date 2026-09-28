@@ -107,3 +107,39 @@ def test_intent_executor_sizes_buy_from_initial_capital_and_sell_from_current_po
     assert sold.trades[0][0].filled_quantity == 200
     assert sold.trades[0][0].side is OrderSide.SELL
     assert account.positions["600000.SH"] == 800
+
+
+
+def test_buy_intent_budget_uses_modeled_slippage_price() -> None:
+    account = SimulatedAccount(Decimal("100000"))
+    decision = TradeIntentDecision(
+        "decision-slippage",
+        "staged",
+        "1.0.0",
+        date(2026, 9, 4),
+        date(2026, 9, 7),
+        (
+            TradeIntent(
+                "intent-slippage",
+                "600000.SH",
+                OrderSide.BUY,
+                InitialCapitalFraction(Decimal("0.10")),
+                ("INITIAL_ENTRY",),
+            ),
+        ),
+    )
+
+    result = IntentExecutor().execute(
+        data=_Data(),
+        account=account,
+        decision=decision,
+        state=_state(),
+        execution_date=date(2026, 9, 7),
+        slippage=Decimal("100"),
+        participation=Decimal("0.10"),
+    )
+
+    trade = result.trades[0][0]
+    assert trade.execution_price == Decimal("10.10")
+    assert trade.filled_quantity == 900
+    assert trade.gross_amount <= Decimal("10000")
