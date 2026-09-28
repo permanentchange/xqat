@@ -17,8 +17,8 @@ from xqatexp.application.services import SelfCheckService
 from xqatexp.application.workflows import StrategyWorkflowService
 from xqatexp.artifacts.manifest import canonical_json_bytes
 from xqatexp.artifacts.publisher import ArtifactPublishError
-from xqatexp.artifacts.schemas import SchemaRegistry
 from xqatexp.artifacts.readers import ArtifactReader
+from xqatexp.artifacts.schemas import SchemaRegistry
 from xqatexp.config import resolve_config
 from xqatexp.domain.contracts import CustomFactorInput
 from xqatexp.domain.enums import OrderSide, OverwritePolicy
@@ -459,6 +459,7 @@ def _publish_failure_if_requested(
         ("config", "config"),
         ("target", "target"),
         ("account", "account"),
+        ("strategy-state", "state"),
     ):
         path = getattr(args, name, None)
         if isinstance(path, Path):
