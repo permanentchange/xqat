@@ -8,7 +8,8 @@ from typing import Any, Protocol, cast
 
 from xqatexp.backtest.account import SimulatedAccount
 from xqatexp.backtest.corporate_actions import CorporateActionProcessor, DividendAction
-from xqatexp.backtest.decision_executor import AllocationDecisionExecutor, UnfilledRecord
+from xqatexp.backtest.decision_executor import UnfilledRecord
+from xqatexp.backtest.decision_router import DecisionExecutorRouter
 from xqatexp.backtest.fees import FeeModel
 from xqatexp.domain.contracts import (
     AllocationDecision,
@@ -21,7 +22,9 @@ from xqatexp.domain.enums import AssetType, OrderSide
 from xqatexp.performance.contribution import contribution
 from xqatexp.portfolio.transitions import annotate_transitions
 from xqatexp.strategy.decision import stable_decision_id
+from xqatexp.strategy.intents import StrategyDecision, TradeIntentDecision
 from xqatexp.strategy.schedule import DecisionSchedule, WeeklyLastTradingDayCloseSchedule
+from xqatexp.strategy.state import StrategyStateReducer, StrategyStateSnapshot, StrategyStateView
 
 
 class EngineData(Protocol):
@@ -77,13 +80,14 @@ class BacktestResult:
     unfilled: tuple[UnfilledRecord, ...]
     portfolio_daily: tuple[PortfolioDailyRecord, ...]
     limitations: tuple[str, ...] = ()
-    decisions: tuple[AllocationDecision, ...] = ()
+    decisions: tuple[StrategyDecision, ...] = ()
+    strategy_state: StrategyStateSnapshot | None = None
 
 
 class BacktestEngine:
     def __init__(self, fees: FeeModel | None = None) -> None:
         self._fees = fees or FeeModel.default()
-        self._decision_executor = AllocationDecisionExecutor(self._fees)
+        self._decision_executor = DecisionExecutorRouter(self._fees)
 
     def run(
         self,
@@ -97,6 +101,7 @@ class BacktestEngine:
         initial_cash: Decimal,
         execution_assumptions: Mapping[str, object],
         schedule: DecisionSchedule | None = None,
+        state_reducer: StrategyStateReducer | None = None,
     ) -> BacktestResult:
         if initial_cash <= 0 or start_date > end_date:
             raise ValueError("CONFIG_VALUE_INVALID: invalid backtest range or initial_cash")
@@ -108,9 +113,9 @@ class BacktestEngine:
         account = SimulatedAccount(initial_cash)
         action_processor = CorporateActionProcessor()
         actions = self._load_corporate_actions(data, start_date, end_date, execution_assumptions)
-        pending: dict[date, AllocationDecision] = {}
+        pending: dict[date, StrategyDecision] = {}
         targets: list[TargetPortfolio] = []
-        decisions: list[AllocationDecision] = []
+        decisions: list[StrategyDecision] = []
         trades: list[ExecutionRecord] = []
         unfilled: list[UnfilledRecord] = []
         daily: list[PortfolioDailyRecord] = []
@@ -123,6 +128,8 @@ class BacktestEngine:
         benchmark_base: Decimal | None = None
         previous_benchmark: Decimal | None = None
         decision_schedule = schedule or WeeklyLastTradingDayCloseSchedule()
+        strategy_state = state_reducer.initial(initial_cash) if state_reducer is not None else None
+        state_event_cursor = 0
 
         for current_day in days:
             account.release_sellable(current_day)
@@ -147,6 +154,11 @@ class BacktestEngine:
                     data=data,
                     account=account,
                     decision=due,
+                    state=(
+                        StrategyStateView(strategy_state)
+                        if strategy_state is not None
+                        else None
+                    ),
                     execution_date=current_day,
                     slippage=slippage,
                     participation=participation,
@@ -243,36 +255,71 @@ class BacktestEngine:
                     action_processor.record_entitlement(account, action)
 
             if decision_schedule.is_decision_day(data, current_day):
+                if state_reducer is not None and strategy_state is not None:
+                    for event in account.ledger[state_event_cursor:]:
+                        strategy_state = state_reducer.apply(strategy_state, event)
+                    state_event_cursor = len(account.ledger)
+
                 research = data.view(current_day)
-                decision_generator = getattr(strategy, "generate_decision", None)
-                if callable(decision_generator):
+                if state_reducer is not None:
+                    stateful_generator = getattr(strategy, "generate_stateful_decision", None)
+                    if not callable(stateful_generator) or strategy_state is None:
+                        raise ValueError(
+                            "STRATEGY_STATE_REQUIRED: stateful strategy decision generator missing"
+                        )
                     decision = cast(
-                        AllocationDecision,
-                        decision_generator(research, custom, parameters),
-                    )
-                    generated = decision.target
-                else:
-                    generated = strategy.generate_target(research, custom, parameters)
-                    decision = AllocationDecision(
-                        stable_decision_id(
-                            generated.strategy_id,
-                            generated.strategy_version,
-                            generated.decision_date,
-                            generated.effective_from,
-                            "ALLOCATION",
+                        TradeIntentDecision,
+                        stateful_generator(
+                            research,
+                            StrategyStateView(strategy_state),
+                            custom,
+                            parameters,
                         ),
-                        generated,
                     )
-                annotated = annotate_transitions(generated, previous_target)
-                decision = replace(decision, target=annotated)
-                if annotated.effective_from <= current_day:
-                    raise ValueError("PORTFOLIO_INVALID_TARGET: target is not forward effective")
-                if annotated.effective_from in pending:
-                    raise ValueError("PORTFOLIO_INVALID_TARGET: duplicate effective date")
-                pending[annotated.effective_from] = decision
-                targets.append(annotated)
-                decisions.append(decision)
-                previous_target = annotated
+                    if decision.effective_from <= current_day:
+                        raise ValueError(
+                            "STRATEGY_INTENT_INVALID: decision is not forward effective"
+                        )
+                    if decision.effective_from in pending:
+                        raise ValueError(
+                            "STRATEGY_INTENT_INVALID: duplicate effective date"
+                        )
+                    pending[decision.effective_from] = decision
+                    decisions.append(decision)
+                else:
+                    decision_generator = getattr(strategy, "generate_decision", None)
+                    if callable(decision_generator):
+                        allocation_decision = cast(
+                            AllocationDecision,
+                            decision_generator(research, custom, parameters),
+                        )
+                        generated = allocation_decision.target
+                    else:
+                        generated = strategy.generate_target(research, custom, parameters)
+                        allocation_decision = AllocationDecision(
+                            stable_decision_id(
+                                generated.strategy_id,
+                                generated.strategy_version,
+                                generated.decision_date,
+                                generated.effective_from,
+                                "ALLOCATION",
+                            ),
+                            generated,
+                        )
+                    annotated = annotate_transitions(generated, previous_target)
+                    allocation_decision = replace(allocation_decision, target=annotated)
+                    if annotated.effective_from <= current_day:
+                        raise ValueError(
+                            "PORTFOLIO_INVALID_TARGET: target is not forward effective"
+                        )
+                    if annotated.effective_from in pending:
+                        raise ValueError(
+                            "PORTFOLIO_INVALID_TARGET: duplicate effective date"
+                        )
+                    pending[annotated.effective_from] = allocation_decision
+                    targets.append(annotated)
+                    decisions.append(allocation_decision)
+                    previous_target = annotated
         limitations = (
             ("DIVIDEND_TAX_NOT_PERSONALIZED",)
             if actions
@@ -280,6 +327,10 @@ class BacktestEngine:
             == "PROVIDER_AFTER_TAX"
             else ()
         )
+        if state_reducer is not None and strategy_state is not None:
+            for event in account.ledger[state_event_cursor:]:
+                strategy_state = state_reducer.apply(strategy_state, event)
+
         return BacktestResult(
             tuple(targets),
             tuple(trades),
@@ -287,6 +338,7 @@ class BacktestEngine:
             tuple(daily),
             limitations,
             tuple(decisions),
+            strategy_state,
         )
 
     @staticmethod
