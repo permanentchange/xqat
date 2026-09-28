@@ -46,6 +46,7 @@ def test_daily_target_result_has_exact_validated_file_set(tmp_path: Path) -> Non
         "resolved_config.json",
         "target_portfolio.json",
         "target_positions.csv",
+        "strategy_diagnostics.json",
         "issues.json",
         "report.md",
     }
@@ -108,6 +109,7 @@ def test_daily_advice_and_backtest_publish_complete_contracts(tmp_path: Path) ->
         "unfilled.parquet",
         "metrics.json",
         "period_metrics.csv",
+        "strategy_diagnostics.json",
         "issues.json",
         "report.md",
     }
