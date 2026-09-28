@@ -19,12 +19,13 @@ class _Slice:
 
     def history(self, security_ids, fields, start, end):
         assert security_ids == ("600000.SH",)
-        assert fields == ("research_close",)
+        assert fields == ("research_close", "close_raw")
         return tuple(
             {
                 "security_id": "600000.SH",
                 "trade_date": day,
                 "research_close": close,
+                "close_raw": close,
             }
             for day, close in zip(self._days, self._closes, strict=True)
             if start <= day <= end
