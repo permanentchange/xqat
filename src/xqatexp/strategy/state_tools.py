@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 
-from xqatexp.backtest.account_events import TradeFilled
+from xqatexp.backtest.account_events import SplitApplied, StockDistributionApplied, TradeFilled
 from xqatexp.domain.contracts import ExecutionFees, ExecutionRecord
 from xqatexp.domain.enums import FillStatus, OrderSide
 from xqatexp.strategy.registry import resolve_strategy_spec
@@ -57,8 +58,33 @@ def apply_confirmed_fill(
     return reducer.apply(state, TradeFilled(record))
 
 
+def apply_confirmed_stock_adjustment(
+    state: StrategyStateSnapshot,
+    *,
+    effective_date: date,
+    event_id: str,
+    security_id: str,
+    added_quantity: int,
+    kind: str,
+) -> StrategyStateSnapshot:
+    if state.as_of is not None and effective_date < state.as_of:
+        raise ValueError("STRATEGY_STATE_INVALID: adjustment date precedes state as_of")
+    if added_quantity <= 0:
+        raise ValueError("STRATEGY_STATE_INVALID: stock adjustment quantity must be positive")
+    reducer = StrategyStateReducer(state.strategy_id, state.strategy_version)
+    if kind == "STOCK_DISTRIBUTION":
+        event = StockDistributionApplied(event_id, security_id, added_quantity)
+    elif kind == "SPLIT":
+        event = SplitApplied(event_id, security_id, added_quantity, 0)
+    else:
+        raise ValueError("STRATEGY_STATE_INVALID: unsupported stock adjustment kind")
+    updated = reducer.apply(state, event)
+    return replace(updated, as_of=effective_date)
+
+
 __all__ = [
     "apply_confirmed_fill",
+    "apply_confirmed_stock_adjustment",
     "initialize_strategy_state",
     "load_strategy_state",
 ]
