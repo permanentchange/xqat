@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xqatexp.local/schemas/strategy_state-1.0.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "strategy_id",
+    "strategy_version",
+    "initial_capital",
+    "as_of",
+    "positions"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "strategy_id": { "type": "string", "minLength": 1 },
+    "strategy_version": { "type": "string", "minLength": 1 },
+    "initial_capital": { "type": "number", "exclusiveMinimum": 0 },
+    "as_of": { "type": ["string", "null"], "format": "date" },
+    "positions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "security_id",
+          "quantity",
+          "remaining_cost_basis",
+          "last_trade_side",
+          "last_trade_date",
+          "last_trade_quantity",
+          "last_trade_price",
+          "last_buy_price",
+          "cumulative_buy_notional"
+        ],
+        "properties": {
+          "security_id": { "type": "string", "pattern": "^[0-9]{6}\\.(SH|SZ)$" },
+          "quantity": { "type": "integer", "minimum": 0 },
+          "remaining_cost_basis": { "type": "number", "minimum": 0 },
+          "last_trade_side": { "type": ["string", "null"], "enum": ["BUY", "SELL", null] },
+          "last_trade_date": { "type": ["string", "null"], "format": "date" },
+          "last_trade_quantity": { "type": "integer", "minimum": 0 },
+          "last_trade_price": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+          "last_buy_price": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+          "cumulative_buy_notional": { "type": "number", "minimum": 0 }
+        }
+      }
+    }
+  }
+}
