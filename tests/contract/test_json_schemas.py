@@ -67,7 +67,9 @@ def test_registry_exposes_every_versioned_physical_schema() -> None:
         "research_tables",
         "resolved_config",
         "strategy_diagnostics",
+        "strategy_state",
         "target_history",
+        "trade_intents",
         "target_portfolio",
         "target_positions",
         "trade_advice",
@@ -88,7 +90,9 @@ def test_registry_loads_every_json_contract_from_disk() -> None:
         "raw_request",
         "resolved_config",
         "strategy_diagnostics",
+        "strategy_state",
         "target_portfolio",
+        "trade_intents",
         "trade_advice",
     )
     for schema_id in registry.json_schema_ids:
