@@ -74,6 +74,35 @@ Linux 与 Windows 应分别创建自己的 Conda 环境，不共享同一个环�
 
 趋势使用复权后的 `research_close`；加仓锚点和持仓收益使用 `close_raw`。决策在 D 日收盘后产生，当前执行模型为 D+1 NEXT_OPEN，不模拟 9:15–9:25 集合竞价订单簿。
 
+### 策略源码组织
+
+共享策略框架位于 `src/xqatexp/strategy/`，只包含 Registry、Decision/Intent、Schedule 和 Strategy State 等通用机制。具体策略按 strategy id 放在独立目录中：
+
+```text
+src/xqatexp/strategy/
+├── registry.py
+├── decision.py
+├── intents.py
+├── schedule.py
+├── state.py
+├── state_io.py
+├── state_tools.py
+└── strategies/
+    ├── weekly_market_guard_rank_v1/
+    │   ├── parameters.py
+    │   ├── declaration.py
+    │   ├── strategy.py
+    │   ├── scoring.py
+    │   ├── market_regime.py
+    │   └── drawdown.py
+    └── staged_drawdown_v1/
+        ├── parameters.py
+        ├── declaration.py
+        └── strategy.py
+```
+
+新增策略应建立 `strategies/<strategy_id>/`，提供参数标准化、StrategyDeclaration、策略实现，并在全局 `strategy/registry.py` 注册。普通新策略不应通过修改 BacktestEngine、ResearchSession、Account 或 Reporting 来接入。
+
 ## 4. 完整离线示例
 
 以下命令假设已经 `conda activate xqat`：
