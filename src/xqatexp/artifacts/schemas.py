@@ -53,9 +53,7 @@ _CSV_COLUMNS = {
         "security_id",
         "asset_type",
         "target_weight",
-        "rank",
-        "score",
-        "holding_age_weeks",
+        "planning_priority",
         "transition",
         "explanation_codes",
     ),
@@ -226,17 +224,10 @@ _ARROW_SCHEMAS = {
             pa.field("effective_from", pa.date32(), nullable=False),
             pa.field("strategy_id", pa.string(), nullable=False),
             pa.field("strategy_version", pa.string(), nullable=False),
-            pa.field("market_regime", pa.string(), nullable=False),
-            pa.field("theoretical_drawdown", D18_12, nullable=False),
-            pa.field("drawdown_window_trade_days", pa.int32(), nullable=False),
-            pa.field("drawdown_observations", pa.int32(), nullable=False),
-            pa.field("drawdown_overlay_level", pa.string(), nullable=False),
             pa.field("security_id", pa.string(), nullable=False),
             pa.field("asset_type", pa.string(), nullable=False),
             pa.field("target_weight", D18_12, nullable=False),
-            pa.field("rank", pa.int32()),
-            pa.field("score", pa.float64()),
-            pa.field("holding_age_weeks", pa.int32()),
+            pa.field("planning_priority", pa.int32()),
             pa.field("transition", pa.string()),
             pa.field("explanation_codes", pa.list_(pa.string()), nullable=False),
         ]
@@ -359,11 +350,23 @@ class SchemaRegistry:
                 f"ARTIFACT_SCHEMA_INCOMPATIBLE: unknown JSON schema {schema_id}"
             )
         version = value.get("schema_version") if isinstance(value, dict) else None
-        if not isinstance(version, str) or version.split(".", 1)[0] != "1":
-            raise SchemaValidationError(
-                f"ARTIFACT_SCHEMA_INCOMPATIBLE: unsupported {schema_id} version {version!r}"
-            )
-        schema = self.load_json_schema(schema_id)
+        major = version.split(".", 1)[0] if isinstance(version, str) else None
+        if schema_id == "target_portfolio":
+            if major == "1":
+                schema_path = self._schema_root / "target_portfolio_v1.schema.json"
+                schema = json.loads(schema_path.read_text("utf-8"))
+            elif major == "2":
+                schema = self.load_json_schema(schema_id)
+            else:
+                raise SchemaValidationError(
+                    f"ARTIFACT_SCHEMA_INCOMPATIBLE: unsupported {schema_id} version {version!r}"
+                )
+        else:
+            if major != "1":
+                raise SchemaValidationError(
+                    f"ARTIFACT_SCHEMA_INCOMPATIBLE: unsupported {schema_id} version {version!r}"
+                )
+            schema = self.load_json_schema(schema_id)
         validator = jsonschema.Draft202012Validator(
             schema, format_checker=jsonschema.FormatChecker()
         )
