@@ -124,6 +124,8 @@ class StrategyStateReducer:
         event: TradeFilled,
     ) -> StrategyStateSnapshot:
         record = event.record
+        if state.as_of is not None and record.execution_date < state.as_of:
+            raise ValueError("STRATEGY_STATE_INVALID: execution date precedes state as_of")
         if record.filled_quantity <= 0:
             return state
         positions = self._positions(state)
