@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
-import re
 from typing import cast
 
 STAGED_DRAWDOWN_DEFAULTS: dict[str, object] = {
