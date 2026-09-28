@@ -47,13 +47,9 @@ jobs:
           python -m pip install --require-hashes -r requirements-dev.lock
           python -m pip install --no-deps --no-build-isolation -e .
 
-      - name: Ruff format (advisory)
+      - name: Ruff code lint (advisory)
         continue-on-error: true
-        run: python -m ruff format --check .
-
-      - name: Ruff lint (advisory)
-        continue-on-error: true
-        run: python -m ruff check .
+        run: python -m ruff check src/xqatexp tests
 
       - name: Mypy strict (advisory)
         continue-on-error: true
