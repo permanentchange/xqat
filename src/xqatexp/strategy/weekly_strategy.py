@@ -83,6 +83,34 @@ class WeeklyMarketGuardRankStrategy:
         custom: CustomFactorView | None,
         parameters: Mapping[str, object],
     ) -> TargetPortfolio:
+        target, _ = self._build_target_and_diagnostics(research, custom, parameters)
+        return target
+
+    def generate_decision(
+        self,
+        research: ResearchDataView,
+        custom: CustomFactorView | None,
+        parameters: Mapping[str, object],
+    ) -> AllocationDecision:
+        target, diagnostics = self._build_target_and_diagnostics(research, custom, parameters)
+        return AllocationDecision(
+            stable_decision_id(
+                target.strategy_id,
+                target.strategy_version,
+                target.decision_date,
+                target.effective_from,
+                "ALLOCATION",
+            ),
+            target,
+            diagnostics,
+        )
+
+    def _build_target_and_diagnostics(
+        self,
+        research: ResearchDataView,
+        custom: CustomFactorView | None,
+        parameters: Mapping[str, object],
+    ) -> tuple[TargetPortfolio, StrategyDiagnostics]:
         del parameters
         parameters = self._parameter_values
         days = tuple(research.trading_days(research.earliest_date, research.decision_date))
@@ -141,14 +169,14 @@ class WeeklyMarketGuardRankStrategy:
         )
         positions = [
             TargetPosition(
-                security_id,
-                AssetType.A_SHARE,
-                per_stock,
-                ranks[security_id],
-                scores[security_id] * 100.0,
-                None,
-                ("ENTRY_RANK" if selected[security_id] == 1 else "RETAIN_EXIT_RANK",),
-                selected[security_id],
+                security_id=security_id,
+                asset_type=AssetType.A_SHARE,
+                target_weight=per_stock,
+                transition=None,
+                explanation_codes=(
+                    "ENTRY_RANK" if selected[security_id] == 1 else "RETAIN_EXIT_RANK",
+                ),
+                planning_priority=ranks[security_id],
             )
             for security_id in selected
             if per_stock > 0
@@ -156,27 +184,19 @@ class WeeklyMarketGuardRankStrategy:
         if etf_weight > 0:
             positions.append(
                 TargetPosition(
-                    etf_id,
-                    AssetType.CSI300_ETF,
-                    etf_weight,
-                    None,
-                    None,
-                    None,
-                    (f"REGIME_{regime.value}",),
-                    None,
+                    security_id=etf_id,
+                    asset_type=AssetType.CSI300_ETF,
+                    target_weight=etf_weight,
+                    transition=None,
+                    explanation_codes=(f"REGIME_{regime.value}",),
                 )
             )
         effective = self._next_day(research, research.decision_date)
-        return TargetPortfolio(
+        target = TargetPortfolio(
             self.declaration.strategy_id,
             self.declaration.strategy_version,
             research.decision_date,
             effective,
-            regime,
-            drawdown,
-            60,
-            observations,
-            overlay.level.value,
             tuple(positions),
             (),
             cash_weight,
@@ -185,44 +205,27 @@ class WeeklyMarketGuardRankStrategy:
                 Explanation(f"DRAWDOWN_{overlay.level.value}", "Rolling theoretical drawdown"),
             ),
         )
-
-    def generate_decision(
-        self,
-        research: ResearchDataView,
-        custom: CustomFactorView | None,
-        parameters: Mapping[str, object],
-    ) -> AllocationDecision:
-        target = self.generate_target(research, custom, parameters)
         diagnostics = StrategyDiagnostics(
             "weekly_market_guard_rank_v1",
             "1.0",
             {
-                "market_regime": target.market_regime.value,
-                "theoretical_drawdown": target.theoretical_drawdown,
-                "drawdown_window_trade_days": target.drawdown_window_trade_days,
-                "drawdown_observations": target.drawdown_observations,
-                "drawdown_overlay_level": target.drawdown_overlay_level,
+                "market_regime": regime.value,
+                "theoretical_drawdown": drawdown,
+                "drawdown_window_trade_days": 60,
+                "drawdown_observations": observations,
+                "drawdown_overlay_level": overlay.level.value,
                 "positions": {
-                    item.security_id: {
-                        "rank": item.rank,
-                        "score": item.score,
-                        "holding_age_weeks": item.holding_age_weeks,
+                    security_id: {
+                        "rank": ranks[security_id],
+                        "score": scores[security_id] * 100.0,
+                        "holding_age_weeks": selected[security_id],
                     }
-                    for item in target.positions
+                    for security_id in selected
+                    if per_stock > 0
                 },
             },
         )
-        return AllocationDecision(
-            stable_decision_id(
-                target.strategy_id,
-                target.strategy_version,
-                target.decision_date,
-                target.effective_from,
-                "ALLOCATION",
-            ),
-            target,
-            diagnostics,
-        )
+        return target, diagnostics
 
     @staticmethod
     def _weekly_last_days(days: Sequence[date]) -> frozenset[date]:
