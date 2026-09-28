@@ -21,9 +21,6 @@ from xqatexp.domain.contracts import (
     TradeAdvice,
 )
 from xqatexp.domain.enums import OverwritePolicy
-from xqatexp.strategy.intents import TradeIntentDecision
-from xqatexp.strategy.state import StrategyStateSnapshot
-from xqatexp.strategy.state_io import strategy_state_value
 from xqatexp.domain.issues import Issue
 from xqatexp.reporting.assemblers import BacktestResultAssembler
 from xqatexp.reporting.markdown import (
@@ -43,6 +40,9 @@ from xqatexp.reporting.structured import (
     trade_intents_value,
     target_value,
 )
+from xqatexp.strategy.intents import TradeIntentDecision
+from xqatexp.strategy.state import StrategyStateSnapshot
+from xqatexp.strategy.state_io import strategy_state_value
 
 
 class ResultArtifactPublisher:
