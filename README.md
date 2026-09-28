@@ -4,56 +4,58 @@ XQatExp 是一个本地运行的纯 Python A 股量化研究工具。它将显�
 
 ## 1. 安装（Linux，首选）
 
-正式支持 Linux x86_64 和 Windows 10/11 x64；Linux 优先。Linux 验收基线是 Ubuntu 22.04.5 LTS（WSL2、glibc 2.35），最低 Linux ABI 为 glibc 2.28 级别。要求 64 位 CPython 3.12；Ubuntu 22.04 自带的 Python 3.10 不作为运行时。在仓库根目录执行：
+正式支持 Linux x86_64 和 Windows 10/11 x64；Linux 优先。Linux 验收基线是 Ubuntu 22.04.5 LTS（WSL2、glibc 2.35），最低 Linux ABI 为 glibc 2.28 级别。运行时使用 Conda 创建独立的 Python 3.12 环境。在仓库根目录执行：
 
 ```bash
-python3.12 -m venv .venv
-.venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install --require-hashes -r requirements.lock
-.venv/bin/python -m pip install --require-hashes -r requirements-build.lock
-.venv/bin/python -m pip install --no-deps --no-build-isolation .
-.venv/bin/xqatexp self-check --offline
+conda create -n xqat python=3.12 -y
+conda activate xqat
+python -m pip install --upgrade pip
+python -m pip install --require-hashes -r requirements.lock
+python -m pip install --require-hashes -r requirements-build.lock
+python -m pip install --no-deps --no-build-isolation .
+xqatexp self-check --offline
 ```
 
-`requirements-build.lock` 只锁定构建后端，开发与测试依赖使用 `requirements-dev.lock`。需要源码可编辑安装的开发者可把最后一条安装命令改为结尾带 `-e .`。
+`requirements-build.lock` 只锁定构建后端，开发与测试依赖使用 `requirements-dev.lock`。需要源码可编辑安装的开发者可把最后一条安装命令改为 `python -m pip install --no-deps --no-build-isolation -e .`。
 
 ## 2. 安装（Windows PowerShell）
 
-Windows 10/11 x64 同样正式支持，使用独立的 CPython 3.12 venv。在仓库根目录执行：
+Windows 10/11 x64 同样正式支持，使用独立的 Conda Python 3.12 环境。在仓库根目录执行：
 
 ```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install --require-hashes -r requirements.lock
-.\.venv\Scripts\python.exe -m pip install --require-hashes -r requirements-build.lock
-.\.venv\Scripts\python.exe -m pip install --no-deps --no-build-isolation .
-.\.venv\Scripts\xqatexp.exe self-check --offline
+conda create -n xqat python=3.12 -y
+conda activate xqat
+python -m pip install --upgrade pip
+python -m pip install --require-hashes -r requirements.lock
+python -m pip install --require-hashes -r requirements-build.lock
+python -m pip install --no-deps --no-build-isolation .
+xqatexp self-check --offline
 ```
 
-Windows `.venv` 与 Linux `.venv` 不能共享或互用。若同一工作目录可从 Windows 与 WSL 的 `/mnt/c` 访问，WSL 不得使用 Windows 创建的 `.venv`。正式 Linux 验收必须在 WSL 原生 ext4 文件系统中的干净仓库副本和独立 `.venv` 中运行，避免 DrvFS 掩盖 POSIX 权限、rename 或符号链接问题。Git Bash 对应激活命令是 `source .venv/Scripts/activate`，也可以始终直接调用 `.venv/Scripts/python.exe`。
+Linux 与 Windows 应分别创建自己的 Conda 环境，不共享同一个环境目录。若同一工作目录可从 Windows 与 WSL 的 `/mnt/c` 访问，正式 Linux 验收仍建议在 WSL 原生 ext4 文件系统中的干净仓库副本中运行，避免 DrvFS 掩盖 POSIX 权限、rename 或符号链接问题。每次进入仓库开始工作前先执行 `conda activate xqat`。
 
 ## 3. 完整离线示例
 
-离线示例使用确定性的合成行情，不访问网络，也不需要 Token。Linux：
+下面所有命令都假设已经执行 `conda activate xqat`。离线示例使用确定性的合成行情，不访问网络，也不需要 Token。Linux：
 
 ```bash
-.venv/bin/python examples/generate_offline_example.py --root .example-work
-.venv/bin/xqatexp data check-research --input .example-work/research --report .example-work/research-check.json
-.venv/bin/xqatexp daily target --config examples/config-offline.toml --decision-date 2026-09-04 --output .example-work/daily-target
-.venv/bin/xqatexp daily advise --config examples/config-offline.toml --target .example-work/daily-target --account examples/account-complete.json --output .example-work/daily-advice
-.venv/bin/xqatexp backtest run --config examples/config-offline.toml --start-date 2026-08-31 --end-date 2026-09-07 --output .example-work/backtest
-.venv/bin/xqatexp result show --input .example-work/backtest --format markdown
+python examples/generate_offline_example.py --root .example-work
+xqatexp data check-research --input .example-work/research --report .example-work/research-check.json
+xqatexp daily target --config examples/config-offline.toml --decision-date 2026-09-04 --output .example-work/daily-target
+xqatexp daily advise --config examples/config-offline.toml --target .example-work/daily-target --account examples/account-complete.json --output .example-work/daily-advice
+xqatexp backtest run --config examples/config-offline.toml --start-date 2026-08-31 --end-date 2026-09-07 --output .example-work/backtest
+xqatexp result show --input .example-work/backtest --format markdown
 ```
 
 Windows PowerShell 对应命令：
 
 ```powershell
-.\.venv\Scripts\python.exe examples\generate_offline_example.py --root .example-work
-.\.venv\Scripts\xqatexp.exe data check-research --input .example-work\research --report .example-work\research-check.json
-.\.venv\Scripts\xqatexp.exe daily target --config examples\config-offline.toml --decision-date 2026-09-04 --output .example-work\daily-target
-.\.venv\Scripts\xqatexp.exe daily advise --config examples\config-offline.toml --target .example-work\daily-target --account examples\account-complete.json --output .example-work\daily-advice
-.\.venv\Scripts\xqatexp.exe backtest run --config examples\config-offline.toml --start-date 2026-08-31 --end-date 2026-09-07 --output .example-work\backtest
-.\.venv\Scripts\xqatexp.exe result show --input .example-work\backtest --format markdown
+python examples\generate_offline_example.py --root .example-work
+xqatexp data check-research --input .example-work\research --report .example-work\research-check.json
+xqatexp daily target --config examples\config-offline.toml --decision-date 2026-09-04 --output .example-work\daily-target
+xqatexp daily advise --config examples\config-offline.toml --target .example-work\daily-target --account examples\account-complete.json --output .example-work\daily-advice
+xqatexp backtest run --config examples\config-offline.toml --start-date 2026-08-31 --end-date 2026-09-07 --output .example-work\backtest
+xqatexp result show --input .example-work\backtest --format markdown
 ```
 
 重复生成示例时给生成脚本加 `--overwrite`；重复写正式结果时，只有明确指定 `--existing overwrite` 才会替换已验证结果。
@@ -63,15 +65,15 @@ Windows PowerShell 对应命令：
 自定义因子路径，Linux：
 
 ```bash
-.venv/bin/xqatexp factor check --file .example-work/custom-factor.csv --research .example-work/research --strategy weekly_market_guard_rank_v1 --start 2026-08-31 --end 2026-09-04 --report .example-work/factor-check.json
-.venv/bin/xqatexp daily target --config examples/config-custom-factor.toml --decision-date 2026-09-04 --custom-factor .example-work/custom-factor.csv --output .example-work/custom-daily-target
+xqatexp factor check --file .example-work/custom-factor.csv --research .example-work/research --strategy weekly_market_guard_rank_v1 --start 2026-08-31 --end 2026-09-04 --report .example-work/factor-check.json
+xqatexp daily target --config examples/config-custom-factor.toml --decision-date 2026-09-04 --custom-factor .example-work/custom-factor.csv --output .example-work/custom-daily-target
 ```
 
 Windows PowerShell 对应命令：
 
 ```powershell
-.\.venv\Scripts\xqatexp.exe factor check --file .example-work\custom-factor.csv --research .example-work\research --strategy weekly_market_guard_rank_v1 --start 2026-08-31 --end 2026-09-04 --report .example-work\factor-check.json
-.\.venv\Scripts\xqatexp.exe daily target --config examples\config-custom-factor.toml --decision-date 2026-09-04 --custom-factor .example-work\custom-factor.csv --output .example-work\custom-daily-target
+xqatexp factor check --file .example-work\custom-factor.csv --research .example-work\research --strategy weekly_market_guard_rank_v1 --start 2026-08-31 --end 2026-09-04 --report .example-work\factor-check.json
+xqatexp daily target --config examples\config-custom-factor.toml --decision-date 2026-09-04 --custom-factor .example-work\custom-factor.csv --output .example-work\custom-daily-target
 ```
 
 `account-complete.json`、`account-empty.json`、`account-partial.json` 和 `account-unknown.json` 展示不同账户完整性。账户缺失、部分或未知时，目标权重仍保留，但系统不会臆造当前持仓或可执行数量。建议固定包含“仅供研究参考”的非订单声明。
@@ -81,21 +83,21 @@ Windows PowerShell 对应命令：
 `staged_drawdown_v1` 是 execution-state 驱动策略。首次运行先创建显式状态，Daily 决策不会从历史建议或账户快照猜测成交事实。Linux：
 
 ```bash
-.venv/bin/xqatexp state init --strategy-id staged_drawdown_v1 --strategy-version 1.0.0 --initial-capital 1000000 --output .example-work/staged-state.json
-.venv/bin/xqatexp daily decide --config examples/config-staged-drawdown.toml --decision-date 2026-09-04 --state .example-work/staged-state.json --output .example-work/staged-decision
+xqatexp state init --strategy-id staged_drawdown_v1 --strategy-version 1.0.0 --initial-capital 1000000 --output .example-work/staged-state.json
+xqatexp daily decide --config examples/config-staged-drawdown.toml --decision-date 2026-09-04 --state .example-work/staged-state.json --output .example-work/staged-decision
 ```
 
 Windows PowerShell：
 
 ```powershell
-.\.venv\Scripts\xqatexp.exe state init --strategy-id staged_drawdown_v1 --strategy-version 1.0.0 --initial-capital 1000000 --output .example-work\staged-state.json
-.\.venv\Scripts\xqatexp.exe daily decide --config examples\config-staged-drawdown.toml --decision-date 2026-09-04 --state .example-work\staged-state.json --output .example-work\staged-decision
+xqatexp state init --strategy-id staged_drawdown_v1 --strategy-version 1.0.0 --initial-capital 1000000 --output .example-work\staged-state.json
+xqatexp daily decide --config examples\config-staged-drawdown.toml --decision-date 2026-09-04 --state .example-work\staged-state.json --output .example-work\staged-decision
 ```
 
 `daily decide` 输出的是下一交易日开盘执行意图，而不是成交确认。真实成交后必须用实际成交事实推进状态，例如 Linux：
 
 ```bash
-.venv/bin/xqatexp state apply-fill \
+xqatexp state apply-fill \
   --input .example-work/staged-state.json \
   --execution-date 2026-09-07 \
   --security-id 600000.SH \
@@ -113,7 +115,7 @@ Windows PowerShell：
 如果发生已确认的送股或拆分，也不要手工改 state；用 `state apply-stock-adjustment` 写入实际新增股份，例如：
 
 ```bash
-.venv/bin/xqatexp state apply-stock-adjustment \
+xqatexp state apply-stock-adjustment \
   --input .example-work/staged-state-next.json \
   --effective-date 2026-09-08 \
   --event-id distribution-20260908 \
@@ -135,18 +137,18 @@ Token 仅从当前进程的 `TUSHARE_TOKEN` 环境变量读取，不允许写入
 
 ```bash
 export TUSHARE_TOKEN="<在本机填写你的 Token>"
-.venv/bin/xqatexp data capabilities --output .local/tushare-capabilities.json
-.venv/bin/python -m pytest -m live_tushare --live-tushare -q
-.venv/bin/xqatexp data fetch --dataset stock_daily --start 2026-08-01 --end 2026-08-31 --output data/raw/stock-daily-202608
+xqatexp data capabilities --output .local/tushare-capabilities.json
+python -m pytest -m live_tushare --live-tushare -q
+xqatexp data fetch --dataset stock_daily --start 2026-08-01 --end 2026-08-31 --output data/raw/stock-daily-202608
 ```
 
 Windows PowerShell 的进程局部设置和对应命令：
 
 ```powershell
 $env:TUSHARE_TOKEN = "<在本机填写你的 Token>"
-.\.venv\Scripts\xqatexp.exe data capabilities --output .local\tushare-capabilities.json
-.\.venv\Scripts\python.exe -m pytest -m live_tushare --live-tushare -q
-.\.venv\Scripts\xqatexp.exe data fetch --dataset stock_daily --start 2026-08-01 --end 2026-08-31 --output data\raw\stock-daily-202608
+xqatexp data capabilities --output .local\tushare-capabilities.json
+python -m pytest -m live_tushare --live-tushare -q
+xqatexp data fetch --dataset stock_daily --start 2026-08-01 --end 2026-08-31 --output data\raw\stock-daily-202608
 ```
 
 最小真实接口测试需要显式开关，且只发起一次日线请求。能力探测会逐项报告当前积分可调用的接口。正式抓取每次只处理一个显式数据集和日期范围；随后对每个 Raw Artifact 执行 `data check-raw`，并把构建所需的各个 `--raw-root` 显式传给 `data build`。工具不会自动寻找 `latest`，也不会在回测、每日模式或结果查看时访问网络。
@@ -170,17 +172,17 @@ $env:TUSHARE_TOKEN = "<在本机填写你的 Token>"
 Linux：
 
 ```bash
-.venv/bin/python -m pytest -q
-.venv/bin/python -m ruff check src tests
-.venv/bin/python -m mypy src
+python -m pytest -q
+python -m ruff check src tests
+python -m mypy src
 ```
 
 Windows PowerShell：
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\python.exe -m ruff check src tests
-.\.venv\Scripts\python.exe -m mypy src
+python -m pytest -q
+python -m ruff check src tests
+python -m mypy src
 ```
 
 需求上位文件 `PRD.txt` 与 `总体架构设计.md` 只读，不应由开发过程修改。
