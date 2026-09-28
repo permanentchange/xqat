@@ -141,7 +141,11 @@ class StrategyStateReducer:
                 last_trade_quantity=record.filled_quantity,
                 last_trade_price=record.execution_price,
                 last_buy_price=record.execution_price,
-                cumulative_buy_notional=current.cumulative_buy_notional + record.gross_amount,
+                cumulative_buy_notional=(
+                    record.gross_amount
+                    if current.quantity == 0
+                    else current.cumulative_buy_notional + record.gross_amount
+                ),
             )
         else:
             if record.filled_quantity > current.quantity:
