@@ -19,6 +19,7 @@ from xqatexp.artifacts.schemas import SchemaRegistry
 from xqatexp.backtest.engine import BacktestResult
 from xqatexp.domain.contracts import (
     AccountSnapshot,
+    AllocationDecision,
     AnalysisPeriod,
     ExecutionRecord,
     ResolvedRunContext,
@@ -39,6 +40,7 @@ from xqatexp.reporting.structured import (
     issue_value,
     issues_value,
     resolved_context_value,
+    strategy_diagnostics_value,
     target_positions_csv,
     target_value,
 )
@@ -56,12 +58,16 @@ class ResultArtifactPublisher:
         issues: Sequence[Issue],
         limitations: Sequence[str],
         overwrite: OverwritePolicy,
+        *,
+        decision: AllocationDecision | None = None,
     ) -> PublishedArtifact:
         config = resolved_context_value(context)
         target_data = target_value(target)
+        diagnostics_data = strategy_diagnostics_value(() if decision is None else (decision,))
         issue_data = issues_value(issues)
         self._schemas.validate_json("resolved_config", config)
         self._schemas.validate_json("target_portfolio", target_data)
+        self._schemas.validate_json("strategy_diagnostics", diagnostics_data)
         self._schemas.validate_json("issues", issue_data)
 
         def build(staging: Path) -> None:
@@ -69,6 +75,7 @@ class ResultArtifactPublisher:
                 "resolved_config.json": canonical_json_bytes(config),
                 "target_portfolio.json": canonical_json_bytes(target_data),
                 "target_positions.csv": target_positions_csv(target),
+                "strategy_diagnostics.json": canonical_json_bytes(diagnostics_data),
                 "issues.json": canonical_json_bytes(issue_data),
                 "report.md": daily_target_markdown(target_data).encode("utf-8"),
             }
@@ -141,9 +148,11 @@ class ResultArtifactPublisher:
         config = resolved_context_value(context)
         tables = self._backtest_tables(result)
         metrics = self._metrics(result)
+        diagnostics_data = strategy_diagnostics_value(result.decisions)
         issue_data = issues_value(())
         self._schemas.validate_json("resolved_config", config)
         self._schemas.validate_json("metrics", metrics)
+        self._schemas.validate_json("strategy_diagnostics", diagnostics_data)
         self._schemas.validate_json("issues", issue_data)
 
         def build(staging: Path) -> None:
@@ -153,6 +162,7 @@ class ResultArtifactPublisher:
                 "period_metrics.csv": self._period_metrics_csv(
                     metrics, result, context.analysis_periods
                 ),
+                "strategy_diagnostics.json": canonical_json_bytes(diagnostics_data),
                 "issues.json": canonical_json_bytes(issue_data),
                 "report.md": backtest_markdown(metrics, len(result.trades)).encode("utf-8"),
             }
