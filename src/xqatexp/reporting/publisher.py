@@ -27,6 +27,7 @@ from xqatexp.domain.contracts import (
     TradeAdvice,
 )
 from xqatexp.domain.enums import OverwritePolicy
+from xqatexp.strategy.intents import TradeIntentDecision
 from xqatexp.domain.issues import Issue
 from xqatexp.performance.metrics import PerformanceAnalyzer
 from xqatexp.reporting.markdown import (
@@ -628,7 +629,11 @@ class ResultArtifactPublisher:
         if record.decision_id is not None:
             for decision in result.decisions:
                 if decision.decision_id == record.decision_id:
-                    return decision.target.decision_date
+                    return (
+                        decision.decision_date
+                        if isinstance(decision, TradeIntentDecision)
+                        else decision.target.decision_date
+                    )
         candidates = [
             item.decision_date
             for item in result.targets
@@ -666,6 +671,7 @@ class ResultArtifactPublisher:
     ) -> dict[str, Any]:
         schema_by_name = {
             "resolved_config.json": "resolved_config",
+            "strategy_diagnostics.json": "strategy_diagnostics",
             "target_portfolio.json": "target_portfolio",
             "target_positions.csv": "target_positions",
             "trade_advice.json": "trade_advice",
@@ -695,7 +701,13 @@ class ResultArtifactPublisher:
                     "sha256": hashlib.sha256(payload).hexdigest(),
                     "row_count": None,
                     "schema_id": schema_by_name.get(name),
-                    "schema_version": "1.0" if name in schema_by_name else None,
+                    "schema_version": (
+                        "2.0"
+                        if name == "target_portfolio.json"
+                        else "1.0"
+                        if name in schema_by_name
+                        else None
+                    ),
                 }
             )
         return {
