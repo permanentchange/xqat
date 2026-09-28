@@ -241,8 +241,7 @@ class BacktestEngine:
                     two_way,
                 )
             )
-            account.ledger.append(("VALUATION_RECORDED", (current_day, nav)))
-            account._assert_invariants()
+            account.record_valuation(current_day, nav)
             previous_nav = nav
             previous_stock = stock_value
             previous_etf = etf_value
