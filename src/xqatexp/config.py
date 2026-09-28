@@ -32,6 +32,7 @@ _TOP_LEVEL = {
     "output",
     "account_snapshot",
     "previous_target",
+    "strategy_state",
     "custom_factors",
     "strategy",
     "execution",
@@ -178,6 +179,10 @@ def resolve_config(
     previous_target_path = (
         Path(str(raw["previous_target"])).resolve() if raw.get("previous_target") else None
     )
+    strategy_state_value = cli_values.get("strategy_state") or raw.get("strategy_state")
+    strategy_state_path = (
+        Path(str(strategy_state_value)).resolve() if strategy_state_value else None
+    )
     path_inputs = {"research_artifact": research, "config": toml_path.resolve()}
     path_inputs.update(
         {f"custom_factor[{index}]": item.path for index, item in enumerate(custom_inputs)}
@@ -186,6 +191,8 @@ def resolve_config(
         path_inputs["account_snapshot"] = account_path
     if previous_target_path is not None:
         path_inputs["previous_target"] = previous_target_path
+    if strategy_state_path is not None:
+        path_inputs["strategy_state"] = strategy_state_path
     validate_disjoint_paths(path_inputs, {"output": output})
     periods_raw = raw.get("analysis_periods", [])
     if not isinstance(periods_raw, list):
@@ -238,4 +245,5 @@ def resolve_config(
         execution_assumptions=execution,
         generated_at=generated_at,
         analysis_periods=tuple(analysis_periods),
+        strategy_state_path=strategy_state_path,
     )
