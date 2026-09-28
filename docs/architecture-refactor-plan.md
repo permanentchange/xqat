@@ -334,18 +334,35 @@ StrategyState 与 AccountSnapshot 做一致性检查，冲突必须显式告警�
 - [x] Phase 14：Typed Account Events。
 - [x] Phase 15：Strategy State。已新增不可变 `StrategyStateSnapshot/View`、纯 `StrategyStateReducer` 与 confirmed AccountEvent 回放；partial fill / corporate action 已有测试。
 - [x] Phase 16：TradeIntentDecision + IntentExecutor。已支持 FixedNotional / InitialCapitalFraction / CurrentPositionFraction / FullPosition，并接入 BacktestEngine stateful 路径。
-- [ ] Phase 17：Stateful Daily。
-- [ ] Phase 18：Reporting 拆分。
-- [ ] Phase 19：staged drawdown strategy。
+- [x] Phase 17：Stateful Daily。已新增 `DAILY_DECISION` / `daily decide`、显式 `StrategyStateSnapshot` 输入、可选 AccountSnapshot 一致性校验、`trade_intents.json` / `strategy_state.json` / diagnostics 输出；并新增 `state init` 与 `state apply-fill`，首次运行和真实成交后都无需手工编辑 state JSON。
+- [x] Phase 18：Reporting 拆分。Backtest tables、metrics、period metrics 与 execution provenance 组装已抽到 `reporting/assemblers.py`；ResultArtifactPublisher 不再推导这些业务事实，并支持 stateful daily/backtest state artifact。
+- [x] Phase 19：staged drawdown strategy。已注册 `staged_drawdown_v1@1.0.0`，使用 DailyCloseSchedule、price-only requirements、confirmed execution state 与 TradeIntent；覆盖首次缓慢下跌买入、按上次实际买入价再跌加仓、整体成本止盈分批卖出、单轮最大投入、partial fill/company action 状态推进。
 
 后续执行顺序按依赖调整为：
 
 ```text
-Phase 17 Stateful Daily
+Phase 17 Stateful Daily [DONE]
     ->
-Phase 18 Reporting decomposition
+Phase 18 Reporting decomposition [DONE]
     ->
-Phase 19 staged drawdown strategy
+Phase 19 staged drawdown strategy [DONE]
 ```
 
 每完成一个阶段，更新本节状态并保持提交可独立审查。Phase 11/15/16 已由 Linux 主 CI run #99 的完整离线测试、CLI help 与 offline self-check 验证通过。由于当前自动化执行环境无法直接通过网络克隆 GitHub 仓库，本轮验证优先使用仓库的 GitHub Actions Linux/Windows CI；若某项无法由 CI 覆盖，会在执行结果中明确列为需要本地验证。
+
+### 9.1 Phase 19 实际语义
+
+- 20 日趋势使用 `research_close`；与上次实际成交买入价比较、整体持仓收益率使用 `close_raw`，避免复权价与真实成交价混用。
+- 默认“缓慢下跌”定义为 20 个收盘观察内累计跌幅至少 10%、任一单日跌幅不超过 5%、19 个日收益中至少 12 天下跌；均可配置。
+- 首次/连续买入 sizing 为初始资金比例；IntentExecutor 使用与 ExecutionSimulator 相同的 modeled execution price 做向下手数取整，因此滑点不会让实际 gross 突破该档 notional 预算。
+- 最大投入按当前持仓周期的实际累计买入 gross notional 约束；完全清仓后下一轮首次买入重置累计周期。买入费用计入剩余成本基础，但不计入 gross-notional 上限。
+- 止盈收益率按 `当前 raw close * 持仓数量 / 剩余成本基础 - 1` 计算；剩余成本基础包含买入费用，部分卖出按持股比例释放成本。
+- 止盈信号优先于加仓信号；卖出后如果后续仍满足止盈阈值，可继续按当前持仓 20% 产生下一次卖出 intent。
+- 真实 Daily 运行不从历史建议猜成交：必须通过显式 state 输入；实际成交后用 `state apply-fill` 写入 confirmed fill。可选 AccountSnapshot 只做数量一致性校验，不修补 state。
+- 股票送转/拆分在 backtest state reducer 中保持成本基础不变，并按数量变化调整 `last_buy_price` 锚点。
+
+### 9.2 当前验证状态
+
+本轮按用户要求不等待 CI 结果再推进代码。仓库已补齐对应 unit/integration/e2e/contract 测试，但当前会话环境没有本地仓库执行环境，因此尚未在本地直接运行完整 pytest/Ruff/Mypy。后续若 CI 或用户本地运行暴露失败，应以失败日志为准修正，不回退上述领域边界。
+
+当前 main head（写入本状态时）：`41fed0a77f02b374507ecbbb42b45f355e6870a2`。
