@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xqatexp.local/schemas/strategy_diagnostics-1.0.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "decisions"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "decision_id",
+          "strategy_id",
+          "strategy_version",
+          "decision_date",
+          "effective_from",
+          "diagnostics"
+        ],
+        "properties": {
+          "decision_id": { "type": "string", "minLength": 1 },
+          "strategy_id": { "type": "string", "minLength": 1 },
+          "strategy_version": { "type": "string", "minLength": 1 },
+          "decision_date": { "type": "string", "format": "date" },
+          "effective_from": { "type": "string", "format": "date" },
+          "diagnostics": {
+            "oneOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["schema_id", "schema_version", "values"],
+                "properties": {
+                  "schema_id": { "type": "string", "minLength": 1 },
+                  "schema_version": { "type": "string", "minLength": 1 },
+                  "values": { "type": "object" }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}
