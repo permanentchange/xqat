@@ -21,6 +21,7 @@ def test_core_enum_values_match_shared_contract() -> None:
     assert [value.value for value in enums.RunMode] == [
         "BACKTEST",
         "DAILY_TARGET",
+        "DAILY_DECISION",
         "DAILY_ADVICE",
     ]
     assert [value.value for value in enums.AssetType] == [
