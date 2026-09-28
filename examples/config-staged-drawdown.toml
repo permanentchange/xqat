@@ -1,0 +1,28 @@
+schema_version = "1.0"
+mode = "DAILY_DECISION"
+strategy_id = "staged_drawdown_v1"
+strategy_version = "1.0.0"
+research_artifact = ".example-work/research"
+decision_date = "2026-09-04"
+strategy_state = ".example-work/staged-state.json"
+output = ".example-work/staged-result-placeholder"
+
+[strategy]
+security_id = "600000.SH"
+lookback_trade_days = 20
+cumulative_decline_threshold = 0.10
+single_day_crash_threshold = 0.05
+minimum_down_days = 12
+add_buy_decline_threshold = 0.10
+buy_fraction = 0.10
+max_capital_fraction = 1.00
+take_profit_threshold = 0.10
+sell_fraction = 0.20
+
+[execution]
+initial_cash = 1000000
+price_model = "NEXT_OPEN"
+slippage_bps = 10
+max_volume_participation = 0.10
+fee_schedule_id = "cn_cash_market_default_v1"
+dividend_tax_model = "PROVIDER_AFTER_TAX"
