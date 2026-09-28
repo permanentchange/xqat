@@ -6,7 +6,9 @@ from xqatexp.strategy.intents import CurrentPositionFraction, InitialCapitalFrac
 from xqatexp.strategy.strategies.staged_drawdown_v1.declaration import (
     staged_drawdown_declaration,
 )
-from xqatexp.strategy.strategies.staged_drawdown_v1.strategy import StagedDrawdownStrategy
+from xqatexp.strategy.strategies.staged_drawdown_v1.strategy import (
+    StagedDrawdownStrategy,
+)
 from xqatexp.strategy.state import (
     StrategyPositionState,
     StrategyStateSnapshot,

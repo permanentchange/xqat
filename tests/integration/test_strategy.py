@@ -7,7 +7,9 @@ import pytest
 
 from xqatexp.domain.contracts import SecuritySnapshot
 from xqatexp.domain.enums import AssetType
-from xqatexp.strategy.strategies.weekly_market_guard_rank_v1.declaration import ETF_FACTOR_IDS
+from xqatexp.strategy.strategies.weekly_market_guard_rank_v1.declaration import (
+    ETF_FACTOR_IDS,
+)
 from xqatexp.strategy.strategies.weekly_market_guard_rank_v1.drawdown import OverlayLevel
 from xqatexp.strategy.strategies.weekly_market_guard_rank_v1.strategy import (
     WeeklyMarketGuardRankStrategy,
