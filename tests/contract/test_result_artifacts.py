@@ -13,9 +13,11 @@ from xqatexp.artifacts.readers import ArtifactReader
 from xqatexp.backtest.engine import BacktestEngine
 from xqatexp.daily.advice import DailyAdviceService
 from xqatexp.domain.contracts import AnalysisPeriod, ResolvedRunContext
-from xqatexp.domain.enums import OverwritePolicy, RunMode
+from xqatexp.domain.enums import OrderSide, OverwritePolicy, RunMode
 from xqatexp.portfolio.rebalance import LotRule
 from xqatexp.reporting.publisher import ResultArtifactPublisher
+from xqatexp.strategy.intents import InitialCapitalFraction, TradeIntent, TradeIntentDecision
+from xqatexp.strategy.state import StrategyStateReducer
 
 
 def _context(tmp_path: Path) -> ResolvedRunContext:
@@ -189,3 +191,50 @@ def test_repeated_backtest_has_identical_business_files(tmp_path: Path) -> None:
     )
     for name in ArtifactReader().open(first.path).verified_files:
         assert (first.path / name).read_bytes() == (second.path / name).read_bytes(), name
+
+
+
+def test_stateful_daily_decision_publishes_explicit_state_and_intents(tmp_path: Path) -> None:
+    state = StrategyStateReducer("stateful", "1.0.0").initial(Decimal("100000"))
+    decision = TradeIntentDecision(
+        "decision-stateful",
+        "stateful",
+        "1.0.0",
+        date(2026, 9, 4),
+        date(2026, 9, 7),
+        (
+            TradeIntent(
+                "intent-stateful",
+                "600000.SH",
+                OrderSide.BUY,
+                InitialCapitalFraction(Decimal("0.10")),
+                ("INITIAL_ENTRY",),
+            ),
+        ),
+    )
+    context = replace(
+        _context(tmp_path),
+        mode=RunMode.DAILY_DECISION,
+        strategy_id="stateful",
+        strategy_version="1.0.0",
+        output_path=tmp_path / "daily-decision",
+        strategy_state_path=tmp_path / "state.json",
+    )
+    published = ResultArtifactPublisher().publish_daily_decision(
+        context,
+        decision,
+        state,
+        (),
+        (),
+        OverwritePolicy.ERROR,
+    )
+    opened = ArtifactReader().open(published.path)
+    assert opened.manifest["artifact_type"] == "DAILY_DECISION_RESULT"
+    assert set(opened.verified_files) == {
+        "resolved_config.json",
+        "trade_intents.json",
+        "strategy_state.json",
+        "strategy_diagnostics.json",
+        "issues.json",
+        "report.md",
+    }
