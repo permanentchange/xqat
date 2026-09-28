@@ -1,6 +1,6 @@
 # XQatExp
 
-XQatExp 是一个本地运行的纯 Python A 股量化研究工具。它将显式的 Tushare 原始数据构建为不可变 Research Artifact，并使用同一个周频策略实现历史回测、每日目标和账户事实约束下的参考建议。策略只投资 A 股个股、沪深300ETF与现金，优先控制理论策略组合回撤。
+XQatExp 是一个本地运行的纯 Python A 股量化研究工具。它将显式的 Tushare 原始数据构建为不可变 Research Artifact，并通过 Strategy Registry 支持 allocation 型周频策略与 execution-state 驱动的 stateful 策略。现有能力包括历史回测、每日目标、stateful 每日决策，以及账户事实约束下的参考建议。
 
 ## 1. 安装（Linux，首选）
 
@@ -76,6 +76,44 @@ Windows PowerShell 对应命令：
 
 `account-complete.json`、`account-empty.json`、`account-partial.json` 和 `account-unknown.json` 展示不同账户完整性。账户缺失、部分或未知时，目标权重仍保留，但系统不会臆造当前持仓或可执行数量。建议固定包含“仅供研究参考”的非订单声明。
 
+### Stateful staged drawdown 示例
+
+`staged_drawdown_v1` 是 execution-state 驱动策略。首次运行先创建显式状态，Daily 决策不会从历史建议或账户快照猜测成交事实。Linux：
+
+```bash
+.venv/bin/xqatexp state init --strategy-id staged_drawdown_v1 --strategy-version 1.0.0 --initial-capital 1000000 --output .example-work/staged-state.json
+.venv/bin/xqatexp daily decide --config examples/config-staged-drawdown.toml --decision-date 2026-09-04 --state .example-work/staged-state.json --output .example-work/staged-decision
+```
+
+Windows PowerShell：
+
+```powershell
+.\.venv\Scripts\xqatexp.exe state init --strategy-id staged_drawdown_v1 --strategy-version 1.0.0 --initial-capital 1000000 --output .example-work\staged-state.json
+.\.venv\Scripts\xqatexp.exe daily decide --config examples\config-staged-drawdown.toml --decision-date 2026-09-04 --state .example-work\staged-state.json --output .example-work\staged-decision
+```
+
+`daily decide` 输出的是下一交易日开盘执行意图，而不是成交确认。真实成交后必须用实际成交事实推进状态，例如 Linux：
+
+```bash
+.venv/bin/xqatexp state apply-fill \
+  --input .example-work/staged-state.json \
+  --execution-date 2026-09-07 \
+  --security-id 600000.SH \
+  --side BUY \
+  --quantity 10000 \
+  --execution-price 9.80 \
+  --commission 5 \
+  --transfer-fee 0 \
+  --stamp-duty 0 \
+  --output .example-work/staged-state-next.json
+```
+
+下一次 `daily decide` 应把 `staged-state-next.json` 作为 `--state`。如果同时提供 `--account`，系统只做明确的一致性校验；不会用账户快照自动修补 last buy price、成本基础或历史成交。
+
+当前日线数据口径下，信号在 D 日收盘后生成，并从 D+1 开盘执行。20 日趋势使用复权后的 `research_close`；与“上次实际买入价”的加仓比较和整体持仓收益率使用 `close_raw`，与实际成交价保持同一价格口径。默认“缓慢下跌”定义为：20 个收盘观察内累计跌幅至少 10%、任一单日跌幅不超过 5%、19 个日收益中至少 12 天下跌；这些阈值都可在 `[strategy]` 中修改。
+
+止盈优先于继续加仓。剩余持仓成本基础包含买入费用，卖出后按持股比例释放成本；累计买入金额用于约束单轮持仓周期内的最大初始资金投入，完全清仓后下一次首次买入会开始新的累计周期。
+
 ## 4. Tushare 数据
 
 Token 仅从当前进程的 `TUSHARE_TOKEN` 环境变量读取，不允许写入 TOML、JSON、源码或命令参数。请在本机临时设置自己的值。Linux：
@@ -104,9 +142,9 @@ $env:TUSHARE_TOKEN = "<在本机填写你的 Token>"
 
 - Research Artifact 保存七张版本化 Parquet 表；Raw 与 Research 不混用。
 - Backtest Result 包含目标历史、每日净值、成交、未成交、指标、阶段指标和 Markdown 报告。
-- Daily Target 保存策略目标；Daily Advice 另外保存账户事实约束下的建议 JSON/CSV。
+- Daily Target 保存 allocation 策略目标；Daily Decision 保存 stateful 策略的 trade intents、显式 strategy state 与 diagnostics；Daily Advice 另外保存账户事实约束下的建议 JSON/CSV。
 - `result show --format json|markdown|summary` 只读取已发布事实，不重新计算。
-- `backtest run`、`daily target` 和 `daily advise` 可显式添加 `--failure-report 路径`；失败时只发布独立诊断 Artifact，不伪造成功结果。
+- `backtest run`、`daily target`、`daily decide` 和 `daily advise` 可显式添加 `--failure-report 路径`；失败时只发布独立诊断 Artifact，不伪造成功结果。
 - 目标在决策日收盘后形成，只能从下一交易日起执行；回测按先卖后买和 T+1 可卖规则推进。
 - Tushare、日线成交模型、费用默认值以及分红税模型都是研究假设，不代表真实成交或券商结算。
 
