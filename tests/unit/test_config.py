@@ -277,3 +277,58 @@ def test_config_rejects_execution_modes_without_real_implementation(
             run_id="01991a6a-4c00-7000-8000-000000000002",
             generated_at=datetime(2026, 9, 6, tzinfo=UTC),
         )
+
+
+
+def _write_staged_config(tmp_path: Path, security_id: str = "600000.SH") -> Path:
+    research = tmp_path / "staged-research"
+    research.mkdir()
+    (research / "manifest.json").write_text("{}\n", encoding="utf-8")
+    state = tmp_path / "state.json"
+    state.write_text("{}\n", encoding="utf-8")
+    config = tmp_path / "staged.toml"
+    config.write_text(
+        f'''schema_version = "1.0"
+mode = "DAILY_DECISION"
+strategy_id = "staged_drawdown_v1"
+strategy_version = "1.0.0"
+research_artifact = "{research.as_posix()}"
+decision_date = "2026-09-04"
+strategy_state = "{state.as_posix()}"
+output = "{(tmp_path / "staged-output").as_posix()}"
+
+[strategy]
+security_id = "{security_id}"
+''',
+        encoding="utf-8",
+    )
+    return config
+
+
+def test_staged_drawdown_config_materializes_defaults_and_state_input(tmp_path: Path) -> None:
+    config_path = _write_staged_config(tmp_path)
+    context = _config().resolve_config(
+        {},
+        config_path,
+        run_id="01991a6a-4c00-7000-8000-000000000004",
+        generated_at=datetime(2026, 9, 6, tzinfo=UTC),
+    )
+
+    assert context.strategy_id == "staged_drawdown_v1"
+    assert context.parameters["security_id"] == "600000.SH"
+    assert context.parameters["lookback_trade_days"] == 20
+    assert context.parameters["cumulative_decline_threshold"] == pytest.approx(0.10)
+    assert context.parameters["buy_fraction"] == pytest.approx(0.10)
+    assert context.parameters["sell_fraction"] == pytest.approx(0.20)
+    assert context.strategy_state_path == (tmp_path / "state.json").resolve()
+
+
+def test_staged_drawdown_config_rejects_invalid_security_id(tmp_path: Path) -> None:
+    config_path = _write_staged_config(tmp_path, "BAD")
+    with pytest.raises(Exception, match="security_id"):
+        _config().resolve_config(
+            {},
+            config_path,
+            run_id="01991a6a-4c00-7000-8000-000000000005",
+            generated_at=datetime(2026, 9, 6, tzinfo=UTC),
+        )
