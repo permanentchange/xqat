@@ -310,3 +310,50 @@ StrategyState 与 AccountSnapshot 做一致性检查，冲突必须显式告警�
 直接在 `main` 上按小步提交。每个提交只覆盖一个可验证主题，提交前运行可执行的 Linux 测试；Windows 专属行为依赖 GitHub Actions 或用户本地 Windows 环境验证。
 
 任何标记为“纯架构重构”的提交，如果改变现有 weekly strategy 的买卖时点、数量、成交价或 NAV，应视为回归并优先修复。
+
+## 9. 当前执行状态
+
+执行基线：`ede0ad6252cce7a47aa9f066f7c227894f71df62`（2026-09-27）。
+
+状态说明：
+
+- [x] Phase 0：重构安全网（现有测试与新增身份/调度/依赖局部性测试已覆盖主要护栏）。
+- [x] Phase 1：Strategy Registry 与真实策略分派。
+- [x] Phase 2：Typed Strategy Parameters。
+- [x] Phase 3：Run Spec 类型化（工作流已使用 typed run spec；兼容性的 `ResolvedRunContext` 仍保留在外层配置合同）。
+- [x] Phase 4：Decision Schedule。
+- [x] Phase 5：Requirement-driven Declaration。
+- [x] Phase 6：Requirement-driven Readiness。
+- [ ] Phase 7：Generic TargetPortfolio + Strategy Diagnostics。当前只建立了 `StrategyDiagnostics` / `AllocationDecision` 外壳，公共 `TargetPortfolio` 与 schema 仍包含 weekly strategy 专属字段。
+- [x] Phase 8：Portfolio Validation 分层。
+- [x] Phase 9：Backtest / Daily 共享 Portfolio Planning primitives。
+- [x] Phase 10：StrategyDecision（已建立 deterministic decision id 与 `AllocationDecision`）。
+- [ ] Phase 11：DecisionExecutor。当前 BacktestEngine 仍直接负责 allocation decision 到 rebalance instruction 的转换，需要抽出 `AllocationDecisionExecutor`。
+- [x] Phase 12：Execution Provenance。
+- [x] Phase 13：SimulatedAccount 封装。
+- [x] Phase 14：Typed Account Events。
+- [ ] Phase 15：Strategy State。
+- [ ] Phase 16：TradeIntentDecision + IntentExecutor。
+- [ ] Phase 17：Stateful Daily。
+- [ ] Phase 18：Reporting 拆分。
+- [ ] Phase 19：staged drawdown strategy。
+
+后续执行顺序按依赖调整为：
+
+```text
+Phase 7 Generic TargetPortfolio / Diagnostics
+    ->
+Phase 11 DecisionExecutor
+    ->
+Phase 15 Strategy State
+    ->
+Phase 16 TradeIntentDecision / IntentExecutor
+    ->
+Phase 17 Stateful Daily
+    ->
+Phase 18 Reporting decomposition
+    ->
+Phase 19 staged drawdown strategy
+```
+
+每完成一个阶段，更新本节状态并保持提交可独立审查。由于当前自动化执行环境无法直接通过网络克隆 GitHub 仓库，本轮验证优先使用仓库的 GitHub Actions Linux/Windows CI；若某项无法由 CI 覆盖，会在执行结果中明确列为需要本地验证。
