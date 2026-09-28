@@ -39,7 +39,7 @@ flowchart LR
 | Artifact | `artifacts/` | Canonical JSON、Manifest、Schema Registry、原子发布与校验读取 |
 | Research | `research/` | Raw→Research 转换、系统因子、受限查询、readiness、自定义因子 |
 | Domain | `domain/` | 不可变领域合同、枚举、Issue、数值规范 |
-| Strategy | `strategy/` | Strategy Registry、参数、声明、schedule、allocation/stateful 策略与 state reducer |
+| Strategy | `strategy/`, `strategy/strategies/` | 根目录保存 Registry、Decision/Intent、Schedule、State 等共享机制；具体策略按 strategy id 独立封装 |
 | Portfolio | `portfolio/` | Target 校验、transition、手数/现金规划、allocation rebalance |
 | Execution / Backtest | `backtest/` | 决策执行、撮合、费用、模拟账户、公司行为、回测主循环 |
 | Daily | `daily/` | Daily Target、stateful Daily Decision、AccountSnapshot 与 TradeAdvice |
@@ -61,6 +61,24 @@ Research 数据包含 `available_from`，ResearchSession 的查询始终受 deci
 - `staged_drawdown_v1@1.0.0` + `DailyCloseSchedule`。
 
 Config、Backtest 和 Daily 都通过 Registry 解析策略，不在 Engine 中按 strategy id 写专用分支。
+
+具体策略位于：
+
+```text
+strategy/
+├── registry.py
+├── decision.py
+├── intents.py
+├── schedule.py
+├── state.py
+├── state_io.py
+├── state_tools.py
+└── strategies/
+    ├── weekly_market_guard_rank_v1/
+    └── staged_drawdown_v1/
+```
+
+`strategy/` 根目录不保存具体策略算法。策略专属参数、declaration、signal/scoring/overlay 和 strategy class 都归属于对应 `strategies/<strategy_id>/`；全局 Registry 是具体策略进入系统的唯一注册点。
 
 ### 4.3 两种策略决策
 
@@ -113,7 +131,7 @@ BacktestWorkflow 打开 ResearchSession，执行 readiness，然后将 Strategy�
 
 ## 6. 扩展点
 
-新增 allocation 策略需要提供参数 normalizer、declaration、strategy factory 和 schedule，并注册到 Strategy Registry。新增 stateful 策略还需声明 confirmed state requirement，并产生 TradeIntentDecision。只要使用现有 Decision/Intent 合同，不需要修改 BacktestEngine 主循环。
+新增策略应创建 `strategy/strategies/<strategy_id>/`。allocation 策略至少提供参数 normalizer、declaration 和 strategy factory；stateful 策略还需声明 confirmed state requirement 并产生 TradeIntentDecision。Schedule 在全局 Registry 的 StrategySpec 中绑定。只要使用现有 Decision/Intent 合同，新增策略不需要修改 BacktestEngine、ResearchSession、Account 或 Reporting。
 
 新增数据源或数据集应通过 Provider/Raw 层进入，ResearchBuilder 仍是进入策略可见数据的唯一正规转换路径。
 
