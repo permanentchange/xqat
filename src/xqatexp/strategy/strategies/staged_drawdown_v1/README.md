@@ -291,7 +291,258 @@ xqatexp state apply-fill   --input .local/staged-state.json   --execution-date 2
 xqatexp state apply-stock-adjustment   --input .local/staged-state-next.json   --effective-date 2026-09-08   --event-id example-action   --security-id 600000.SH   --kind STOCK_DISTRIBUTION   --added-quantity 1000   --output .local/staged-state-after-action.json
 ```
 
-## 8. 信号优先级
+## 8. 使用 2024–2026 真实 ETF 数据回测
+
+下面给出一套完整的真实数据流程，以沪深300 ETF `510300.SH` 为例。
+
+### 8.1 时间范围
+
+示例下载：
+
+```text
+2024-01-01 ~ 2026-09-10
+```
+
+示例回测：
+
+```text
+2025-01-01 ~ 2026-09-01
+```
+
+Research 数据范围可以早于正式回测范围。这样既能提供 `lookback_trade_days` 所需 warmup，也能让最后一个决策日找到下一交易日。
+
+### 8.2 准备环境
+
+```bash
+conda activate xqat
+export TUSHARE_TOKEN="<在本机填写你的 Token>"
+test -n "$TUSHARE_TOKEN" && echo "TUSHARE_TOKEN is set"
+
+mkdir -p data/raw/staged-510300
+mkdir -p data/research
+mkdir -p .local/raw-checks
+```
+
+Token 只放在当前进程环境变量中，不写入 TOML、源码或命令参数。
+
+### 8.3 下载真实 Tushare 数据
+
+`staged_drawdown_v1` 对 ETF 信号本身只需要价格历史，但完整 Backtest 还需要交易日历、ETF master 和沪深300 benchmark。当前推荐最小集合：
+
+```text
+trade_calendar
+fund_basic
+fund_daily          510300.SH
+fund_adj_factor     510300.SH
+index_daily         000300.SH
+```
+
+执行：
+
+```bash
+xqatexp data fetch \
+  --dataset trade_calendar \
+  --start 2024-01-01 \
+  --end 2026-09-10 \
+  --output data/raw/staged-510300/trade-calendar
+
+xqatexp data fetch \
+  --dataset fund_basic \
+  --start 2024-01-01 \
+  --end 2026-09-10 \
+  --output data/raw/staged-510300/fund-basic
+
+xqatexp data fetch \
+  --dataset fund_daily \
+  --security-id 510300.SH \
+  --start 2024-01-01 \
+  --end 2026-09-10 \
+  --output data/raw/staged-510300/fund-daily
+
+xqatexp data fetch \
+  --dataset fund_adj_factor \
+  --security-id 510300.SH \
+  --start 2024-01-01 \
+  --end 2026-09-10 \
+  --output data/raw/staged-510300/fund-adj-factor
+
+xqatexp data fetch \
+  --dataset index_daily \
+  --start 2024-01-01 \
+  --end 2026-09-10 \
+  --output data/raw/staged-510300/index-daily
+```
+
+当前 ETF 流程不使用股票专属的 `stock_daily`、`stock_adj_factor`、`stock_st_status`、`stock_suspend` 或 `stock_price_limit`。
+
+### 8.4 校验 Raw Artifact
+
+```bash
+for name in trade-calendar fund-basic fund-daily fund-adj-factor index-daily; do
+  xqatexp data check-raw \
+    --input "data/raw/staged-510300/$name" \
+    --report ".local/raw-checks/$name.json"
+done
+```
+
+每个 Artifact 都应返回：
+
+```text
+RAW_CHECK valid=true
+```
+
+### 8.5 构建 Research Artifact
+
+Research Build 当前使用独立 TOML。不要直接复用 staged backtest 配置。
+
+```bash
+cat > .local/staged-etf-research-build.toml <<'EOF'
+schema_version = "1.0"
+start_date = "2024-01-01"
+end_date = "2026-09-10"
+
+[strategy]
+csi300_etf_id = "510300.SH"
+EOF
+```
+
+构建：
+
+```bash
+xqatexp data build \
+  --raw-root data/raw/staged-510300/trade-calendar \
+  --raw-root data/raw/staged-510300/fund-basic \
+  --raw-root data/raw/staged-510300/fund-daily \
+  --raw-root data/raw/staged-510300/fund-adj-factor \
+  --raw-root data/raw/staged-510300/index-daily \
+  --config .local/staged-etf-research-build.toml \
+  --output data/research/staged-510300-20240101-20260910
+```
+
+校验：
+
+```bash
+xqatexp data check-research \
+  --input data/research/staged-510300-20240101-20260910 \
+  --report .local/staged-etf-research-check.json
+```
+
+应返回：
+
+```text
+RESEARCH_CHECK valid=true
+```
+
+### 8.6 创建 Backtest 配置
+
+```bash
+cat > .local/staged-etf-backtest.toml <<'EOF'
+schema_version = "1.0"
+mode = "BACKTEST"
+
+strategy_id = "staged_drawdown_v1"
+strategy_version = "1.0.0"
+
+research_artifact = "data/research/staged-510300-20240101-20260910"
+
+start_date = "2025-01-01"
+end_date = "2026-09-01"
+
+output = ".local/staged-etf-backtest-placeholder"
+
+[strategy]
+security_id = "510300.SH"
+lookback_trade_days = 20
+cumulative_decline_threshold = 0.10
+single_day_crash_threshold = 0.05
+minimum_down_days = 12
+add_buy_decline_threshold = 0.10
+buy_fraction = 0.10
+max_capital_fraction = 1.00
+take_profit_threshold = 0.10
+sell_fraction = 0.20
+
+[execution]
+initial_cash = 1000000
+price_model = "NEXT_OPEN"
+slippage_bps = 10
+max_volume_participation = 0.10
+fee_schedule_id = "cn_cash_market_default_v1"
+dividend_tax_model = "PROVIDER_AFTER_TAX"
+EOF
+```
+
+### 8.7 运行回测
+
+```bash
+xqatexp backtest run \
+  --config .local/staged-etf-backtest.toml \
+  --start-date 2025-01-01 \
+  --end-date 2026-09-01 \
+  --output .local/staged-510300-backtest-20250101-20260901
+```
+
+查看 Markdown 报告：
+
+```bash
+xqatexp result show \
+  --input .local/staged-510300-backtest-20250101-20260901 \
+  --format markdown
+```
+
+### 8.8 检查成交与诊断
+
+实际模拟成交：
+
+```bash
+python - <<'PY'
+import pyarrow.parquet as pq
+
+path = ".local/staged-510300-backtest-20250101-20260901/trades.parquet"
+for row in pq.read_table(path).to_pylist():
+    print(row)
+PY
+```
+
+未成交/部分成交：
+
+```bash
+python - <<'PY'
+import pyarrow.parquet as pq
+
+path = ".local/staged-510300-backtest-20250101-20260901/unfilled.parquet"
+for row in pq.read_table(path).to_pylist():
+    print(row)
+PY
+```
+
+如果成交数为 0，优先检查：
+
+```text
+strategy_diagnostics.json
+```
+
+重点字段：
+
+- `lookback_cumulative_return`
+- `worst_daily_return`
+- `down_days`
+- `slow_decline`
+- `signal`
+
+例如默认首次入场必须同时满足：
+
+```text
+20日累计跌幅 >= 10%
+AND
+最差单日跌幅不超过 5%
+AND
+至少 12 个下跌日
+```
+
+所以 0 成交可能只是这段真实数据从未满足首次建仓条件，并不代表 Backtest 失败。
+
+## 9. 信号优先级
 
 每个决策日严格按以下顺序：
 
@@ -302,7 +553,7 @@ xqatexp state apply-stock-adjustment   --input .local/staged-state-next.json   -
 
 因此同一决策日不会同时产生止盈和加仓 intent。
 
-## 9. 主要输出与诊断
+## 10. 主要输出与诊断
 
 Backtest 主要关注：
 
@@ -330,7 +581,7 @@ Diagnostics 当前包含：
 
 如果回测成交数为 0，应先检查 diagnostics，而不是先假设执行层失败。
 
-## 10. 当前边界
+## 11. 当前边界
 
 - 当前执行模型是 D 日收盘产生信号、D+1 `NEXT_OPEN` 模拟成交，不是 9:15–9:25 集合竞价订单簿模拟。
 - Daily 模式不会从历史 advice、target 或 AccountSnapshot 推测真实成交。
