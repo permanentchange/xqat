@@ -219,7 +219,7 @@ class AccountSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
-class RebalanceInstruction:
+class ExecutionInstruction:
     security_id: str
     side: OrderSide
     current_quantity: int
@@ -231,6 +231,9 @@ class RebalanceInstruction:
     reason_codes: tuple[str, ...]
     instruction_id: str | None = None
     decision_id: str | None = None
+
+
+RebalanceInstruction = ExecutionInstruction
 
 
 @dataclass(frozen=True, slots=True)
