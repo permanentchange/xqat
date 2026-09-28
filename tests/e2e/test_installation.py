@@ -41,7 +41,11 @@ def test_readme_documents_every_public_command_and_secret_boundary() -> None:
         "factor check",
         "backtest run",
         "daily target",
+        "daily decide",
         "daily advise",
+        "state init",
+        "state apply-fill",
+        "state apply-stock-adjustment",
         "result show",
     ):
         assert command in readme
@@ -53,9 +57,10 @@ def test_readme_documents_every_public_command_and_secret_boundary() -> None:
 def test_readme_is_linux_first_and_keeps_windows_powershell() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert readme.index("Linux") < readme.index("Windows PowerShell")
-    assert ".venv/bin/python" in readme
-    assert ".venv/bin/xqatexp" in readme
-    assert r".\.venv\Scripts\python.exe" in readme
-    assert r".\.venv\Scripts\xqatexp.exe" in readme
+    assert "conda create -n xqat python=3.12 -y" in readme
+    assert readme.count("conda activate xqat") >= 2
+    assert "python -m pip install --require-hashes -r requirements.lock" in readme
+    assert "python -m pip install --require-hashes -r requirements-dev.lock" in readme
+    assert "xqatexp self-check --offline" in readme
     assert "不能共享" in readme
     assert "Ubuntu 22.04" in readme
