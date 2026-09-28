@@ -168,6 +168,151 @@ xqatexp data check-research --input data/research/example --report .local/resear
 
 实际 Research 构建通常需要策略所需的多类 Raw Artifact，而不是仅一份 stock_daily。
 
+### 使用 2024–2026 真实数据回测 staged_drawdown_v1
+
+下面以沪深300 ETF `510300.SH` 为例。数据覆盖 2024-01-01 至 2026-09-10，回测示例使用 2025-01-01 至 2026-09-01。较长的数据窗口用于提供策略 warmup 和最后一个决策日之后的下一交易日。
+
+先准备目录并确认 Token：
+
+```bash
+conda activate xqat
+export TUSHARE_TOKEN="<在本机填写你的 Token>"
+test -n "$TUSHARE_TOKEN" && echo "TUSHARE_TOKEN is set"
+
+mkdir -p data/raw/staged-510300
+mkdir -p data/research
+mkdir -p .local/raw-checks
+```
+
+下载交易日历、ETF 基本信息、ETF 日线、ETF 复权因子和沪深300指数：
+
+```bash
+xqatexp data fetch \
+  --dataset trade_calendar \
+  --start 2024-01-01 \
+  --end 2026-09-10 \
+  --output data/raw/staged-510300/trade-calendar
+
+xqatexp data fetch \
+  --dataset fund_basic \
+  --start 2024-01-01 \
+  --end 2026-09-10 \
+  --output data/raw/staged-510300/fund-basic
+
+xqatexp data fetch \
+  --dataset fund_daily \
+  --security-id 510300.SH \
+  --start 2024-01-01 \
+  --end 2026-09-10 \
+  --output data/raw/staged-510300/fund-daily
+
+xqatexp data fetch \
+  --dataset fund_adj_factor \
+  --security-id 510300.SH \
+  --start 2024-01-01 \
+  --end 2026-09-10 \
+  --output data/raw/staged-510300/fund-adj-factor
+
+xqatexp data fetch \
+  --dataset index_daily \
+  --start 2024-01-01 \
+  --end 2026-09-10 \
+  --output data/raw/staged-510300/index-daily
+```
+
+逐个校验 Raw Artifact：
+
+```bash
+for name in trade-calendar fund-basic fund-daily fund-adj-factor index-daily; do
+  xqatexp data check-raw \
+    --input "data/raw/staged-510300/$name" \
+    --report ".local/raw-checks/$name.json"
+done
+```
+
+Research Build 使用单独配置：
+
+```bash
+cat > .local/staged-etf-research-build.toml <<'EOF'
+schema_version = "1.0"
+start_date = "2024-01-01"
+end_date = "2026-09-10"
+
+[strategy]
+csi300_etf_id = "510300.SH"
+EOF
+```
+
+构建并校验 Research Artifact：
+
+```bash
+xqatexp data build \
+  --raw-root data/raw/staged-510300/trade-calendar \
+  --raw-root data/raw/staged-510300/fund-basic \
+  --raw-root data/raw/staged-510300/fund-daily \
+  --raw-root data/raw/staged-510300/fund-adj-factor \
+  --raw-root data/raw/staged-510300/index-daily \
+  --config .local/staged-etf-research-build.toml \
+  --output data/research/staged-510300-20240101-20260910
+
+xqatexp data check-research \
+  --input data/research/staged-510300-20240101-20260910 \
+  --report .local/staged-etf-research-check.json
+```
+
+创建 Backtest 配置：
+
+```bash
+cat > .local/staged-etf-backtest.toml <<'EOF'
+schema_version = "1.0"
+mode = "BACKTEST"
+strategy_id = "staged_drawdown_v1"
+strategy_version = "1.0.0"
+research_artifact = "data/research/staged-510300-20240101-20260910"
+start_date = "2025-01-01"
+end_date = "2026-09-01"
+output = ".local/staged-etf-backtest-placeholder"
+
+[strategy]
+security_id = "510300.SH"
+lookback_trade_days = 20
+cumulative_decline_threshold = 0.10
+single_day_crash_threshold = 0.05
+minimum_down_days = 12
+add_buy_decline_threshold = 0.10
+buy_fraction = 0.10
+max_capital_fraction = 1.00
+take_profit_threshold = 0.10
+sell_fraction = 0.20
+
+[execution]
+initial_cash = 1000000
+price_model = "NEXT_OPEN"
+slippage_bps = 10
+max_volume_participation = 0.10
+fee_schedule_id = "cn_cash_market_default_v1"
+dividend_tax_model = "PROVIDER_AFTER_TAX"
+EOF
+```
+
+运行并查看结果：
+
+```bash
+xqatexp backtest run \
+  --config .local/staged-etf-backtest.toml \
+  --start-date 2025-01-01 \
+  --end-date 2026-09-01 \
+  --output .local/staged-510300-backtest-20250101-20260901
+
+xqatexp result show \
+  --input .local/staged-510300-backtest-20250101-20260901 \
+  --format markdown
+```
+
+若成交数为 0，先检查 `strategy_diagnostics.json` 中的 `lookback_cumulative_return`、`worst_daily_return`、`down_days` 和 `slow_decline`，判断是否从未满足首次建仓条件。
+
+更详细的策略逻辑、参数和真实数据回测说明见 [staged_drawdown_v1 README](src/xqatexp/strategy/strategies/staged_drawdown_v1/README.md)。
+
 ## 7. 自定义因子
 
 Custom factor CSV 固定列为 `factor_name,security_id,factor_date,factor_value`。先验证再用于 weekly 策略：
