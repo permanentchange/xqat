@@ -1,7 +1,10 @@
+# Python environments and bytecode
 .venv/
 .venv-*/
 __pycache__/
 *.py[cod]
+
+# Test, type-check, lint, and coverage caches
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -9,12 +12,25 @@ __pycache__/
 .coverage*.json
 .hypothesis/
 htmlcov/
+
+# Build and packaging outputs
 build/
 dist/
+*.egg-info/
+
+# Local experiment outputs and generated data
+.local/
 .example-work/
 .acceptance-*/
-*.egg-info/
 .xqatexp-tmp/
+data/
+
+# Local secrets and environment overrides
+.env
+.env.*
+!.env.example
+
+# Temporary workflow files
 *.staging-*/
 *.backup-*/
 *.swap-*.json
