@@ -68,6 +68,8 @@ class ResultArtifactPublisher:
         self._schemas.validate_json("resolved_config", config)
         self._schemas.validate_json("target_portfolio", target_data)
         self._schemas.validate_json("strategy_diagnostics", diagnostics_data)
+        if state_data is not None:
+            self._schemas.validate_json("strategy_state", state_data)
         self._schemas.validate_json("issues", issue_data)
 
         def build(staging: Path) -> None:
@@ -76,6 +78,11 @@ class ResultArtifactPublisher:
                 "target_portfolio.json": canonical_json_bytes(target_data),
                 "target_positions.csv": target_positions_csv(target),
                 "strategy_diagnostics.json": canonical_json_bytes(diagnostics_data),
+                **(
+                    {}
+                    if state_data is None
+                    else {"strategy_state.json": canonical_json_bytes(state_data)}
+                ),
                 "issues.json": canonical_json_bytes(issue_data),
                 "report.md": daily_target_markdown(target_data).encode("utf-8"),
             }
@@ -194,6 +201,11 @@ class ResultArtifactPublisher:
         tables = assembly.tables
         metrics = assembly.metrics
         diagnostics_data = strategy_diagnostics_value(result.decisions)
+        state_data = (
+            None
+            if result.strategy_state is None
+            else strategy_state_value(result.strategy_state)
+        )
         issue_data = issues_value(())
         self._schemas.validate_json("resolved_config", config)
         self._schemas.validate_json("metrics", metrics)
