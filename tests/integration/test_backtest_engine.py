@@ -81,7 +81,7 @@ class _Strategy:
             decision_date=research.decision_date,
             effective_from=date(2026, 9, 14),
             positions=(
-                TargetPosition("600001.SH", AssetType.A_SHARE, Decimal("1"), 1, 90.0, None, (), 1),
+                TargetPosition("600001.SH", AssetType.A_SHARE, Decimal("1"), None, (), 1),
             ),
         )
 
