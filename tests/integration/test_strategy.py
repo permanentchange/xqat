@@ -6,7 +6,7 @@ from decimal import Decimal
 import pytest
 
 from xqatexp.domain.contracts import SecuritySnapshot
-from xqatexp.domain.enums import AssetType, MarketRegime
+from xqatexp.domain.enums import AssetType
 from xqatexp.strategy.declaration import ETF_FACTOR_IDS
 from xqatexp.strategy.drawdown import OverlayLevel
 from xqatexp.strategy.weekly_strategy import WeeklyMarketGuardRankStrategy
@@ -140,10 +140,14 @@ def _parameters():
 
 def test_shared_strategy_replays_and_returns_strong_diversified_target() -> None:
     view = _View()
-    target = WeeklyMarketGuardRankStrategy(_parameters()).generate_target(view, None, _parameters())
-    assert target.market_regime is MarketRegime.STRONG
-    assert target.drawdown_window_trade_days == 60
-    assert target.drawdown_observations == 60
+    decision = WeeklyMarketGuardRankStrategy(_parameters()).generate_decision(
+        view, None, _parameters()
+    )
+    target = decision.target
+    assert decision.diagnostics is not None
+    assert decision.diagnostics.values["market_regime"] == "STRONG"
+    assert decision.diagnostics.values["drawdown_window_trade_days"] == 60
+    assert decision.diagnostics.values["drawdown_observations"] == 60
     assert [position.security_id for position in target.positions] == [
         "600000.SH",
         "600001.SH",
