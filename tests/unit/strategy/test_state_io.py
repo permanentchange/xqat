@@ -1,0 +1,34 @@
+from datetime import date
+from decimal import Decimal
+
+from xqatexp.artifacts.manifest import canonical_json_bytes
+from xqatexp.domain.enums import OrderSide
+from xqatexp.strategy.state import StrategyPositionState, StrategyStateSnapshot
+from xqatexp.strategy.state_io import load_strategy_state, strategy_state_value
+
+
+def test_strategy_state_round_trip_preserves_execution_facts(tmp_path) -> None:
+    state = StrategyStateSnapshot(
+        "1.0",
+        "stateful",
+        "1.0.0",
+        Decimal("100000"),
+        date(2026, 9, 7),
+        (
+            StrategyPositionState(
+                "600000.SH",
+                quantity=400,
+                remaining_cost_basis=Decimal("4005"),
+                last_trade_side=OrderSide.BUY,
+                last_trade_date=date(2026, 9, 7),
+                last_trade_quantity=400,
+                last_trade_price=Decimal("10"),
+                last_buy_price=Decimal("10"),
+                cumulative_buy_notional=Decimal("4000"),
+            ),
+        ),
+    )
+    path = tmp_path / "state.json"
+    path.write_bytes(canonical_json_bytes(strategy_state_value(state)))
+
+    assert load_strategy_state(path) == state
