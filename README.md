@@ -16,7 +16,13 @@ python -m pip install --no-deps --no-build-isolation .
 xqatexp self-check --offline
 ```
 
-`requirements-build.lock` 只锁定构建后端，开发与测试依赖使用 `requirements-dev.lock`。需要源码可编辑安装的开发者可把最后一条安装命令改为 `python -m pip install --no-deps --no-build-isolation -e .`。
+`requirements-build.lock` 只锁定构建后端。上面的步骤足够运行程序和执行离线示例；如果需要运行 pytest、Hypothesis property tests、Ruff 或 Mypy，再安装完整开发依赖：
+
+```bash
+python -m pip install --require-hashes -r requirements-dev.lock
+```
+
+`requirements-dev.lock` 已包含 `pytest`、`pytest-cov`、`hypothesis`、`ruff`、`mypy` 等测试与开发工具，不需要再单独 `pip install pytest` 或 `pip install hypothesis`。需要源码可编辑安装的开发者可把项目安装命令改为 `python -m pip install --no-deps --no-build-isolation -e .`。
 
 ## 2. 安装（Windows PowerShell）
 
@@ -30,6 +36,12 @@ python -m pip install --require-hashes -r requirements.lock
 python -m pip install --require-hashes -r requirements-build.lock
 python -m pip install --no-deps --no-build-isolation .
 xqatexp self-check --offline
+```
+
+如果要在 Windows 上运行测试或开发检查，同样先执行：
+
+```powershell
+python -m pip install --require-hashes -r requirements-dev.lock
 ```
 
 Linux 与 Windows 应分别创建自己的 Conda 环境，不共享同一个环境目录。若同一工作目录可从 Windows 与 WSL 的 `/mnt/c` 访问，正式 Linux 验收仍建议在 WSL 原生 ext4 文件系统中的干净仓库副本中运行，避免 DrvFS 掩盖 POSIX 权限、rename 或符号链接问题。每次进入仓库开始工作前先执行 `conda activate xqat`。
@@ -133,7 +145,7 @@ xqatexp state apply-stock-adjustment \
 
 ## 4. Tushare 数据
 
-Token 仅从当前进程的 `TUSHARE_TOKEN` 环境变量读取，不允许写入 TOML、JSON、源码或命令参数。请在本机临时设置自己的值。Linux：
+本节中的 live pytest 需要已经安装 `requirements-dev.lock`。Token 仅从当前进程的 `TUSHARE_TOKEN` 环境变量读取，不允许写入 TOML、JSON、源码或命令参数。请在本机临时设置自己的值。Linux：
 
 ```bash
 export TUSHARE_TOKEN="<在本机填写你的 Token>"
@@ -169,7 +181,13 @@ xqatexp data fetch --dataset stock_daily --start 2026-08-01 --end 2026-08-31 --o
 
 ## 6. 开发校验
 
-Linux：
+先确认开发依赖已安装：
+
+```bash
+python -m pip install --require-hashes -r requirements-dev.lock
+```
+
+然后执行。Linux：
 
 ```bash
 python -m pytest -q
