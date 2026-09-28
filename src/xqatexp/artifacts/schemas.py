@@ -25,6 +25,7 @@ _SCHEMA_IDS = (
     "raw_response",
     "research_tables",
     "resolved_config",
+    "strategy_diagnostics",
     "target_history",
     "target_portfolio",
     "target_positions",
@@ -41,6 +42,7 @@ _JSON_FILES = {
     "metrics": "metrics.schema.json",
     "raw_request": "raw_request.schema.json",
     "resolved_config": "resolved_config.schema.json",
+    "strategy_diagnostics": "strategy_diagnostics.schema.json",
     "target_portfolio": "target_portfolio.schema.json",
     "trade_advice": "trade_advice.schema.json",
 }
