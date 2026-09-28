@@ -54,7 +54,6 @@ def test_state_tools_reject_unknown_strategy_and_unconfirmed_zero_fill() -> None
         )
 
 
-
 def test_state_tools_reject_fill_older_than_current_state() -> None:
     state = initialize_strategy_state(
         "staged_drawdown_v1",
@@ -80,8 +79,7 @@ def test_state_tools_reject_fill_older_than_current_state() -> None:
         )
 
 
-
-def test_state_tools_apply_confirmed_stock_adjustment_without_changing_cost_basis() -> None:
+def test_state_tools_apply_confirmed_stock_adjustment_preserves_cost_basis() -> None:
     state = initialize_strategy_state(
         "staged_drawdown_v1",
         "1.0.0",
