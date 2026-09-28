@@ -10,6 +10,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 from xqatexp.application.services import SelfCheckService
@@ -19,7 +20,7 @@ from xqatexp.artifacts.publisher import ArtifactPublishError
 from xqatexp.artifacts.readers import ArtifactReader
 from xqatexp.config import resolve_config
 from xqatexp.domain.contracts import CustomFactorInput
-from xqatexp.domain.enums import OverwritePolicy
+from xqatexp.domain.enums import OrderSide, OverwritePolicy
 from xqatexp.operations.logging import JsonlEventLogger
 from xqatexp.providers.tushare.capability import CapabilityProbe
 from xqatexp.providers.tushare.client import TokenBucket, TushareClient, TushareError
@@ -30,6 +31,8 @@ from xqatexp.reporting.readers import load_target
 from xqatexp.research.custom_factors import CustomFactorCheckService
 from xqatexp.research.tables import ResearchBuildConfig, ResearchBuilder, ResearchCheckService
 from xqatexp.security import SecurityError, load_tushare_token, validate_disjoint_paths
+from xqatexp.strategy.state_io import load_strategy_state, strategy_state_value
+from xqatexp.strategy.state_tools import apply_confirmed_fill, initialize_strategy_state
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -109,6 +112,25 @@ def _build_parser() -> argparse.ArgumentParser:
     daily_advice.add_argument("--output", required=True, type=Path)
     daily_advice.add_argument("--existing", choices=("error", "skip", "overwrite"), default="error")
     daily_advice.add_argument("--failure-report", type=Path)
+
+    state = commands.add_parser("state", help="Create or update explicit strategy state.")
+    state_commands = state.add_subparsers(dest="state_command", metavar="COMMAND")
+    state_init = state_commands.add_parser("init")
+    state_init.add_argument("--strategy-id", required=True)
+    state_init.add_argument("--strategy-version", default="1.0.0")
+    state_init.add_argument("--initial-capital", required=True, type=Decimal)
+    state_init.add_argument("--output", required=True, type=Path)
+    state_apply = state_commands.add_parser("apply-fill")
+    state_apply.add_argument("--input", required=True, type=Path)
+    state_apply.add_argument("--execution-date", required=True, type=date.fromisoformat)
+    state_apply.add_argument("--security-id", required=True)
+    state_apply.add_argument("--side", required=True, choices=("BUY", "SELL"))
+    state_apply.add_argument("--quantity", required=True, type=int)
+    state_apply.add_argument("--execution-price", required=True, type=Decimal)
+    state_apply.add_argument("--commission", type=Decimal, default=Decimal("0"))
+    state_apply.add_argument("--transfer-fee", type=Decimal, default=Decimal("0"))
+    state_apply.add_argument("--stamp-duty", type=Decimal, default=Decimal("0"))
+    state_apply.add_argument("--output", required=True, type=Path)
 
     result = commands.add_parser("result", help="Inspect a published result artifact.")
     show = result.add_subparsers(dest="result_command", metavar="COMMAND").add_parser("show")
@@ -231,6 +253,7 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         "factor": "factor_command",
         "backtest": "backtest_command",
         "daily": "daily_command",
+        "state": "state_command",
         "result": "result_command",
     }
     subcommand_name = subcommand_names.get(args.command)
@@ -254,10 +277,45 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         return _run_factor(args)
     if args.command in {"backtest", "daily"}:
         return _run_strategy(args)
+    if args.command == "state":
+        return _run_state(args)
     if args.command == "result" and args.result_command == "show":
         return _show_result(args.input, args.format)
     print(f"CONFIG_COMMAND_REQUIRED: choose a subcommand for {args.command}", file=sys.stderr)
     return 2
+
+
+def _run_state(args: argparse.Namespace) -> int:
+    try:
+        if args.state_command == "init":
+            state = initialize_strategy_state(
+                args.strategy_id,
+                args.strategy_version,
+                args.initial_capital,
+            )
+        elif args.state_command == "apply-fill":
+            state = apply_confirmed_fill(
+                load_strategy_state(args.input),
+                execution_date=args.execution_date,
+                security_id=args.security_id,
+                side=OrderSide(args.side),
+                quantity=args.quantity,
+                execution_price=args.execution_price,
+                commission=args.commission,
+                transfer_fee=args.transfer_fee,
+                stamp_duty=args.stamp_duty,
+            )
+        else:
+            return 10
+        _write_new(args.output, canonical_json_bytes(strategy_state_value(state)))
+        print(f"STRATEGY_STATE_WRITTEN output={args.output}")
+        return 0
+    except ArtifactPublishError as error:
+        print(str(error), file=sys.stderr)
+        return 4
+    except (OSError, ValueError) as error:
+        print(str(error), file=sys.stderr)
+        return 2
 
 
 def _run_factor(args: argparse.Namespace) -> int:
