@@ -92,8 +92,8 @@ def test_registry_loads_every_json_contract_from_disk() -> None:
         "strategy_diagnostics",
         "strategy_state",
         "target_portfolio",
-        "trade_intents",
         "trade_advice",
+        "trade_intents",
     )
     for schema_id in registry.json_schema_ids:
         assert registry.load_json_schema(schema_id)["type"] == "object"
