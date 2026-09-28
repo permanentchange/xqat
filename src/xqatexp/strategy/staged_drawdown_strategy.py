@@ -46,17 +46,18 @@ class StagedDrawdownStrategy:
             Sequence[Mapping[str, Any]],
             view.history(
                 (values.security_id,),
-                ("research_close",),
+                ("research_close", "close_raw"),
                 recent[0],
                 recent[-1],
             ),
         )
         if len(rows) != values.lookback_trade_days or any(
-            row.get("research_close") is None for row in rows
+            row.get("research_close") is None or row.get("close_raw") is None for row in rows
         ):
             raise ValueError("DATA_REQUIRED_MISSING: staged drawdown price history")
         closes = tuple(Decimal(str(row["research_close"])) for row in rows)
-        if any(value <= 0 for value in closes):
+        raw_closes = tuple(Decimal(str(row["close_raw"])) for row in rows)
+        if any(value <= 0 for value in (*closes, *raw_closes)):
             raise ValueError("DATA_REQUIRED_MISSING: nonpositive staged drawdown price")
 
         returns = tuple(closes[index] / closes[index - 1] - 1 for index in range(1, len(closes)))
@@ -69,7 +70,7 @@ class StagedDrawdownStrategy:
             and down_days >= values.minimum_down_days
         )
 
-        current_close = closes[-1]
+        current_close = raw_closes[-1]
         position = state.position(values.security_id)
         quantity = 0 if position is None else position.quantity
         profit_rate: Decimal | None = None
@@ -141,7 +142,8 @@ class StagedDrawdownStrategy:
             {
                 "security_id": values.security_id,
                 "signal": signal,
-                "current_close": current_close,
+                "current_raw_close": current_close,
+                "current_research_close": closes[-1],
                 "lookback_cumulative_return": cumulative_return,
                 "worst_daily_return": worst_daily_return,
                 "down_days": down_days,
