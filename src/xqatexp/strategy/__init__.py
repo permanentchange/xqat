@@ -1,1 +1,1 @@
-"""Pure weekly market-guard strategy core."""
+"""Shared strategy framework and built-in strategy registry."""
