@@ -28,11 +28,14 @@ from xqatexp.domain.contracts import (
 )
 from xqatexp.domain.enums import OverwritePolicy
 from xqatexp.strategy.intents import TradeIntentDecision
+from xqatexp.strategy.state import StrategyStateSnapshot
+from xqatexp.strategy.state_io import strategy_state_value
 from xqatexp.domain.issues import Issue
 from xqatexp.performance.metrics import PerformanceAnalyzer
 from xqatexp.reporting.markdown import (
     backtest_markdown,
     daily_advice_markdown,
+    daily_decision_markdown,
     daily_target_markdown,
 )
 from xqatexp.reporting.structured import (
@@ -43,6 +46,7 @@ from xqatexp.reporting.structured import (
     resolved_context_value,
     strategy_diagnostics_value,
     target_positions_csv,
+    trade_intents_value,
     target_value,
 )
 
@@ -88,6 +92,50 @@ class ResultArtifactPublisher:
                 payloads,
                 target.decision_date,
                 target.decision_date,
+                issues,
+                limitations,
+            )
+            (staging / "manifest.json").write_bytes(canonical_json_bytes(manifest))
+
+        return self._publisher.publish(build, context.output_path, overwrite)
+
+    def publish_daily_decision(
+        self,
+        context: ResolvedRunContext,
+        decision: TradeIntentDecision,
+        state: StrategyStateSnapshot,
+        issues: Sequence[Issue],
+        limitations: Sequence[str],
+        overwrite: OverwritePolicy,
+    ) -> PublishedArtifact:
+        config = resolved_context_value(context)
+        intent_data = trade_intents_value(decision)
+        state_data = strategy_state_value(state)
+        diagnostics_data = strategy_diagnostics_value((decision,))
+        issue_data = issues_value(issues)
+        self._schemas.validate_json("resolved_config", config)
+        self._schemas.validate_json("trade_intents", intent_data)
+        self._schemas.validate_json("strategy_state", state_data)
+        self._schemas.validate_json("strategy_diagnostics", diagnostics_data)
+        self._schemas.validate_json("issues", issue_data)
+
+        def build(staging: Path) -> None:
+            payloads = {
+                "resolved_config.json": canonical_json_bytes(config),
+                "trade_intents.json": canonical_json_bytes(intent_data),
+                "strategy_state.json": canonical_json_bytes(state_data),
+                "strategy_diagnostics.json": canonical_json_bytes(diagnostics_data),
+                "issues.json": canonical_json_bytes(issue_data),
+                "report.md": daily_decision_markdown(intent_data).encode("utf-8"),
+            }
+            for name, payload in payloads.items():
+                (staging / name).write_bytes(payload)
+            manifest = self._manifest(
+                context,
+                "DAILY_DECISION_RESULT",
+                payloads,
+                decision.decision_date,
+                decision.decision_date,
                 issues,
                 limitations,
             )
@@ -672,7 +720,9 @@ class ResultArtifactPublisher:
         schema_by_name = {
             "resolved_config.json": "resolved_config",
             "strategy_diagnostics.json": "strategy_diagnostics",
+            "strategy_state.json": "strategy_state",
             "target_portfolio.json": "target_portfolio",
+            "trade_intents.json": "trade_intents",
             "target_positions.csv": "target_positions",
             "trade_advice.json": "trade_advice",
             "trade_advice.csv": "trade_advice",
