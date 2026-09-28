@@ -15,6 +15,7 @@ from xqatexp.domain.enums import (
     OrderSide,
     PositionCompleteness,
     RunMode,
+    StateRequirement,
     TargetTransition,
     TradeAction,
     UnfilledReason,
@@ -87,6 +88,7 @@ class StrategyDeclaration:
     required_custom_factors: tuple[str, ...]
     missing_policies: Mapping[str, str]
     data_requirements: tuple[DataRequirement, ...] = ()
+    state_requirement: StateRequirement = StateRequirement.NONE
 
 
 @dataclass(frozen=True, slots=True)
