@@ -33,7 +33,11 @@ from xqatexp.research.custom_factors import CustomFactorCheckService
 from xqatexp.research.tables import ResearchBuildConfig, ResearchBuilder, ResearchCheckService
 from xqatexp.security import SecurityError, load_tushare_token, validate_disjoint_paths
 from xqatexp.strategy.state_io import load_strategy_state, strategy_state_value
-from xqatexp.strategy.state_tools import apply_confirmed_fill, initialize_strategy_state
+from xqatexp.strategy.state_tools import (
+    apply_confirmed_fill,
+    apply_confirmed_stock_adjustment,
+    initialize_strategy_state,
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -132,6 +136,18 @@ def _build_parser() -> argparse.ArgumentParser:
     state_apply.add_argument("--transfer-fee", type=Decimal, default=Decimal("0"))
     state_apply.add_argument("--stamp-duty", type=Decimal, default=Decimal("0"))
     state_apply.add_argument("--output", required=True, type=Path)
+    state_adjust = state_commands.add_parser("apply-stock-adjustment")
+    state_adjust.add_argument("--input", required=True, type=Path)
+    state_adjust.add_argument("--effective-date", required=True, type=date.fromisoformat)
+    state_adjust.add_argument("--event-id", required=True)
+    state_adjust.add_argument("--security-id", required=True)
+    state_adjust.add_argument(
+        "--kind",
+        required=True,
+        choices=("STOCK_DISTRIBUTION", "SPLIT"),
+    )
+    state_adjust.add_argument("--added-quantity", required=True, type=int)
+    state_adjust.add_argument("--output", required=True, type=Path)
 
     result = commands.add_parser("result", help="Inspect a published result artifact.")
     show = result.add_subparsers(dest="result_command", metavar="COMMAND").add_parser("show")
@@ -305,6 +321,15 @@ def _run_state(args: argparse.Namespace) -> int:
                 commission=args.commission,
                 transfer_fee=args.transfer_fee,
                 stamp_duty=args.stamp_duty,
+            )
+        elif args.state_command == "apply-stock-adjustment":
+            state = apply_confirmed_stock_adjustment(
+                load_strategy_state(args.input),
+                effective_date=args.effective_date,
+                event_id=args.event_id,
+                security_id=args.security_id,
+                added_quantity=args.added_quantity,
+                kind=args.kind,
             )
         else:
             return 10
