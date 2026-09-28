@@ -35,3 +35,5 @@ XQatExp 是本地运行的 A 股量化研究与决策工具，Python 3.12，Linu
 - `staged_drawdown_v1@1.0.0`：日频 stateful 策略，输出 `TradeIntentDecision`，并要求显式的 confirmed execution state。
 
 Backtest 与 Daily 共用策略声明、数据 readiness、决策、执行和 Artifact 契约。回测撮合使用 NEXT_OPEN 日线模型，不模拟 9:15–9:25 集合竞价订单簿微观过程。
+
+策略源码采用“共享框架 + strategy-id 子包”结构：`src/xqatexp/strategy/` 根目录只保存 Registry、Decision/Intent、Schedule 与 State；具体策略位于 `src/xqatexp/strategy/strategies/<strategy_id>/`。详细边界见 [领域模型与策略](detailed-design/01-domain-and-strategy.md)。
