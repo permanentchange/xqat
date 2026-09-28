@@ -72,6 +72,11 @@ class UnfilledReason(StrEnum):
     DELISTED = "DELISTED"
 
 
+class StateRequirement(StrEnum):
+    NONE = "NONE"
+    CONFIRMED_EXECUTION_STATE = "CONFIRMED_EXECUTION_STATE"
+
+
 class PriceKind(StrEnum):
     RESEARCH = "RESEARCH"
     EXECUTION = "EXECUTION"
