@@ -66,6 +66,7 @@ def test_registry_exposes_every_versioned_physical_schema() -> None:
         "raw_response",
         "research_tables",
         "resolved_config",
+        "strategy_diagnostics",
         "target_history",
         "target_portfolio",
         "target_positions",
@@ -86,6 +87,7 @@ def test_registry_loads_every_json_contract_from_disk() -> None:
         "metrics",
         "raw_request",
         "resolved_config",
+        "strategy_diagnostics",
         "target_portfolio",
         "trade_advice",
     )
