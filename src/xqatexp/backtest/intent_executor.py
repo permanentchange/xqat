@@ -74,12 +74,16 @@ class IntentExecutor:
         )
         for intent in ordered:
             row = rows[intent.security_id]
+            asset_type = AssetType(str(row["asset_type"]))
+            facts = self._execution_facts(row, asset_type)
             instruction = self._instruction(
                 decision,
                 intent,
                 account,
                 state,
                 row,
+                facts,
+                slippage,
             )
             if instruction is None:
                 continue
@@ -90,7 +94,8 @@ class IntentExecutor:
                 execution_date=execution_date,
                 instruction=instruction,
                 row=row,
-                asset_type=AssetType(str(row["asset_type"])),
+                facts=facts,
+                asset_type=asset_type,
                 slippage=slippage,
                 participation=participation,
                 executed=executed,
@@ -118,6 +123,8 @@ class IntentExecutor:
         account: SimulatedAccount,
         state: StrategyStateView,
         row: Mapping[str, object],
+        facts: ExecutionFacts,
+        slippage: Decimal,
     ) -> ExecutionInstruction | None:
         price = self._reference_price(row)
         current = account.positions.get(intent.security_id, 0)
@@ -126,8 +133,14 @@ class IntentExecutor:
 
         if intent.side is OrderSide.BUY:
             notional = self._buy_notional(intent, state)
+            modeled_price = self._execution.modeled_price(
+                OrderSide.BUY,
+                facts,
+                slippage,
+            )
+            budget_price = modeled_price or price
             raw_quantity = int(
-                (notional / price).to_integral_value(rounding=ROUND_FLOOR)
+                (notional / budget_price).to_integral_value(rounding=ROUND_FLOOR)
             )
             requested = raw_quantity // buy_lot * buy_lot
             lot_size = buy_lot
@@ -207,6 +220,7 @@ class IntentExecutor:
         execution_date: date,
         instruction: ExecutionInstruction,
         row: Mapping[str, object],
+        facts: ExecutionFacts,
         asset_type: AssetType,
         slippage: Decimal,
         participation: Decimal,
@@ -229,24 +243,6 @@ class IntentExecutor:
             )
             return
 
-        boundary_fallback = "valuation_close" if suspended else "high_raw"
-        facts = ExecutionFacts(
-            asset_type,
-            self._decimal(row, "open_raw", fallback="valuation_close"),
-            self._decimal(row, "high_raw", fallback="valuation_close"),
-            self._decimal(row, "low_raw", fallback="valuation_close"),
-            self._decimal(row, "up_limit", fallback=boundary_fallback),
-            self._decimal(
-                row,
-                "down_limit",
-                fallback="valuation_close" if suspended else "low_raw",
-            ),
-            int(row["volume_shares"]),
-            self._decimal(row, "price_tick"),
-            bool(row.get("is_suspended_full_day")),
-            bool(row.get("is_limit_up_locked")),
-            bool(row.get("is_limit_down_locked")),
-        )
         outcome: ExecutionOutcome = self._execution.execute(
             instruction,
             facts,
@@ -281,6 +277,32 @@ class IntentExecutor:
                     outcome.unfilled_reason,
                 )
             )
+
+    @classmethod
+    def _execution_facts(
+        cls,
+        row: Mapping[str, object],
+        asset_type: AssetType,
+    ) -> ExecutionFacts:
+        suspended = bool(row.get("is_suspended_full_day"))
+        boundary_fallback = "valuation_close" if suspended else "high_raw"
+        return ExecutionFacts(
+            asset_type,
+            cls._decimal(row, "open_raw", fallback="valuation_close"),
+            cls._decimal(row, "high_raw", fallback="valuation_close"),
+            cls._decimal(row, "low_raw", fallback="valuation_close"),
+            cls._decimal(row, "up_limit", fallback=boundary_fallback),
+            cls._decimal(
+                row,
+                "down_limit",
+                fallback="valuation_close" if suspended else "low_raw",
+            ),
+            int(row["volume_shares"]),
+            cls._decimal(row, "price_tick"),
+            suspended,
+            bool(row.get("is_limit_up_locked")),
+            bool(row.get("is_limit_down_locked")),
+        )
 
     @staticmethod
     def _adjustment_turnover(
