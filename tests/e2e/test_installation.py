@@ -62,5 +62,6 @@ def test_readme_is_linux_first_and_keeps_windows_powershell() -> None:
     assert "python -m pip install --require-hashes -r requirements.lock" in readme
     assert "python -m pip install --require-hashes -r requirements-dev.lock" in readme
     assert "xqatexp self-check --offline" in readme
-    assert "不能共享" in readme
+    assert "Linux 与 Windows 应分别创建自己的 Conda 环境" in readme
+    assert "不共享同一个环境目录" in readme
     assert "Ubuntu 22.04" in readme
