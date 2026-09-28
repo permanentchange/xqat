@@ -8,6 +8,7 @@ from pathlib import Path
 from xqatexp.artifacts.manifest import canonical_json_bytes
 from xqatexp.domain.contracts import (
     AccountSnapshot,
+    AllocationDecision,
     ResolvedRunContext,
     TargetPortfolio,
     TradeAdvice,
@@ -90,6 +91,33 @@ def target_value(target: TargetPortfolio) -> dict[str, object]:
         "explanations": [
             {"code": item.code, "message": item.message, "values": dict(item.values)}
             for item in target.explanations
+        ],
+    }
+
+
+def strategy_diagnostics_value(
+    decisions: Sequence[AllocationDecision],
+) -> dict[str, object]:
+    return {
+        "schema_version": "1.0",
+        "decisions": [
+            {
+                "decision_id": decision.decision_id,
+                "strategy_id": decision.target.strategy_id,
+                "strategy_version": decision.target.strategy_version,
+                "decision_date": decision.target.decision_date.isoformat(),
+                "effective_from": decision.target.effective_from.isoformat(),
+                "diagnostics": (
+                    None
+                    if decision.diagnostics is None
+                    else {
+                        "schema_id": decision.diagnostics.schema_id,
+                        "schema_version": decision.diagnostics.schema_version,
+                        "values": dict(decision.diagnostics.values),
+                    }
+                ),
+            }
+            for decision in decisions
         ],
     }
 
