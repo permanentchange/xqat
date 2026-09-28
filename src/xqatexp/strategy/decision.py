@@ -37,3 +37,22 @@ def stable_instruction_id(decision_id: str, security_id: str, side: str) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+def stable_intent_id(
+    decision_id: str,
+    index: int,
+    security_id: str,
+    side: str,
+) -> str:
+    payload = json.dumps(
+        {
+            "decision_id": decision_id,
+            "index": index,
+            "security_id": security_id,
+            "side": side,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
