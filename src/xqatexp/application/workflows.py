@@ -76,9 +76,10 @@ class StrategyWorkflowService:
             readiness = ReadinessChecker().check(declaration, view, custom)
             if not readiness.is_ready:
                 raise ValueError(f"{readiness.issues[0]}: daily input is not ready")
-            target = DailyTargetService().run(
+            decision = DailyTargetService().run_decision(
                 strategy, view, custom, context.parameters, previous=previous
             )
+            target = decision.target
             validate_target(
                 target,
                 etf_id=str(context.parameters["csi300_etf_id"]),
@@ -86,7 +87,12 @@ class StrategyWorkflowService:
                 next_trade_day=session.next_trading_day(run.decision_date),
             )
         return self._publisher.publish_daily_target(
-            context, target, (), readiness.limitations, overwrite
+            context,
+            target,
+            (),
+            readiness.limitations,
+            overwrite,
+            decision=decision,
         ).path
 
     def daily_advice(
