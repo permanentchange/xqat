@@ -189,9 +189,22 @@ class StrategyStateReducer:
             raise ValueError("STRATEGY_STATE_INVALID: negative quantity adjustment")
         positions = self._positions(state)
         current = positions.get(security_id) or StrategyPositionState(security_id)
+        next_quantity = current.quantity + quantity
+        adjusted_last_buy_price = current.last_buy_price
+        if (
+            adjusted_last_buy_price is not None
+            and current.quantity > 0
+            and next_quantity > 0
+        ):
+            adjusted_last_buy_price = (
+                adjusted_last_buy_price
+                * Decimal(current.quantity)
+                / Decimal(next_quantity)
+            )
         positions[security_id] = replace(
             current,
-            quantity=current.quantity + quantity,
+            quantity=next_quantity,
+            last_buy_price=adjusted_last_buy_price,
         )
         return replace(state, positions=self._sorted_positions(positions))
 
