@@ -43,6 +43,54 @@ Intent sizing 当前支持：
 
 当前只有两个内置策略。
 
+### 2.1 代码组织
+
+共享策略框架固定留在 `src/xqatexp/strategy/` 根目录：
+
+- `registry.py`：全局 StrategySpec 注册与解析；
+- `decision.py`：StrategyDecision 和稳定 decision/intent identity；
+- `intents.py`：TradeIntentDecision 与 sizing 类型；
+- `schedule.py`：Daily/Weekly decision schedule；
+- `state.py`：StrategyStateSnapshot/View/Reducer；
+- `state_io.py`、`state_tools.py`：state 序列化与 confirmed-event 维护。
+
+具体策略只放在 `src/xqatexp/strategy/strategies/<strategy_id>/`。
+
+当前目录：
+
+```text
+strategies/
+├── weekly_market_guard_rank_v1/
+│   ├── __init__.py
+│   ├── parameters.py
+│   ├── declaration.py
+│   ├── strategy.py
+│   ├── scoring.py
+│   ├── market_regime.py
+│   └── drawdown.py
+└── staged_drawdown_v1/
+    ├── __init__.py
+    ├── parameters.py
+    ├── declaration.py
+    └── strategy.py
+```
+
+具体策略模块可以依赖共享 Decision/Intent/State/Schedule 合同；共享框架不能反向依赖某个策略的内部算法。唯一允许聚合所有具体策略的共享模块是 `registry.py`。
+
+策略专属 unit tests 镜像源码结构，位于 `tests/unit/strategy/strategies/<strategy_id>/`；共享 state 测试仍位于 `tests/unit/strategy/`。
+
+### 2.2 新策略接入合同
+
+新增 allocation 策略至少需要：
+
+1. `parameters.py`：默认值、类型化参数和 normalizer；
+2. `declaration.py`：StrategyDeclaration / DataRequirement；
+3. `strategy.py`：产生 AllocationDecision 或 TargetPortfolio 的算法；
+4. 在 `strategy/registry.py` 注册 StrategySpec 并绑定 schedule；
+5. 对应 strategy-specific unit tests 和必要的 integration/backtest 测试。
+
+新增 stateful 策略除上述内容外，还应声明 `CONFIRMED_EXECUTION_STATE`，并由 `strategy.py` 产生 TradeIntentDecision。除非需要新增通用能力，否则不应修改 BacktestEngine、IntentExecutor、ResearchSession、Account 或 Reporting。
+
 ## 3. weekly_market_guard_rank_v1
 
 ### 3.1 调度与数据
