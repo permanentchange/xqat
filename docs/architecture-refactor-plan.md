@@ -365,4 +365,4 @@ Phase 19 staged drawdown strategy [DONE]
 
 本轮按用户要求不等待 CI 结果再推进代码。仓库已补齐对应 unit/integration/e2e/contract 测试，但当前会话环境没有本地仓库执行环境，因此尚未在本地直接运行完整 pytest/Ruff/Mypy。后续若 CI 或用户本地运行暴露失败，应以失败日志为准修正，不回退上述领域边界。
 
-Phase 17–19 代码完成 checkpoint：`9e3d4a924dbf8c699b8bda746355d8d6ca715286`。
+Phase 17–19 生产代码 checkpoint：`e4ada4c1e4dedbbb8c1e9b9f0927ed109d6d3971`；使用说明同步 checkpoint：`9e3d4a924dbf8c699b8bda746355d8d6ca715286`。
