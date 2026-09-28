@@ -16,7 +16,10 @@ from xqatexp.artifacts.publisher import ArtifactPublisher, PublishedArtifact
 from xqatexp.artifacts.schemas import SchemaRegistry
 from xqatexp.domain.enums import OverwritePolicy
 from xqatexp.research.tables import TABLE_NAMES
-from xqatexp.strategy.declaration import ETF_FACTOR_IDS, STOCK_FACTOR_IDS
+from xqatexp.strategy.strategies.weekly_market_guard_rank_v1.declaration import (
+    ETF_FACTOR_IDS,
+    STOCK_FACTOR_IDS,
+)
 
 
 def create_offline_research(

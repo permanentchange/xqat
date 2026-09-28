@@ -5,17 +5,17 @@ from dataclasses import dataclass
 from typing import Any
 
 from xqatexp.domain.contracts import StrategyDeclaration
-from xqatexp.strategy.declaration import strategy_declaration
+from xqatexp.strategy.strategies.weekly_market_guard_rank_v1.declaration import strategy_declaration
 from xqatexp.strategy.schedule import (
     DailyCloseSchedule,
     DecisionSchedule,
     WeeklyLastTradingDayCloseSchedule,
 )
-from xqatexp.strategy.staged_drawdown_declaration import staged_drawdown_declaration
-from xqatexp.strategy.staged_drawdown_parameters import normalize_staged_drawdown_parameters
-from xqatexp.strategy.staged_drawdown_strategy import StagedDrawdownStrategy
-from xqatexp.strategy.weekly_parameters import normalize_weekly_parameters
-from xqatexp.strategy.weekly_strategy import WeeklyMarketGuardRankStrategy
+from xqatexp.strategy.strategies.staged_drawdown_v1.declaration import staged_drawdown_declaration
+from xqatexp.strategy.strategies.staged_drawdown_v1.parameters import normalize_staged_drawdown_parameters
+from xqatexp.strategy.strategies.staged_drawdown_v1.strategy import StagedDrawdownStrategy
+from xqatexp.strategy.strategies.weekly_market_guard_rank_v1.parameters import normalize_weekly_parameters
+from xqatexp.strategy.strategies.weekly_market_guard_rank_v1.strategy import WeeklyMarketGuardRankStrategy
 
 
 @dataclass(frozen=True, slots=True)
