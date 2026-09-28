@@ -2,10 +2,6 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from pathlib import Path
-
-from xqatexp.artifacts.manifest import canonical_json_bytes
-from xqatexp.artifacts.schemas import SchemaRegistry
 from xqatexp.backtest.account_events import TradeFilled
 from xqatexp.domain.contracts import ExecutionFees, ExecutionRecord
 from xqatexp.domain.enums import FillStatus, OrderSide
@@ -60,15 +56,9 @@ def apply_confirmed_fill(
     return reducer.apply(state, TradeFilled(record))
 
 
-def write_strategy_state(path: Path, state: StrategyStateSnapshot) -> None:
-    value = strategy_state_value(state)
-    SchemaRegistry().validate_json("strategy_state", value)
-    path.write_bytes(canonical_json_bytes(value))
-
 
 __all__ = [
     "apply_confirmed_fill",
     "initialize_strategy_state",
     "load_strategy_state",
-    "write_strategy_state",
 ]
