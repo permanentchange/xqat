@@ -58,7 +58,7 @@ Linux 与 Windows 应分别创建自己的 Conda 环境，不共享同一个环�
 
 ### weekly_market_guard_rank_v1
 
-周频 allocation 策略。每周最后交易日收盘决策，输出通用 TargetPortfolio。策略使用 A 股系统因子、沪深300ETF regime、持仓 rank hysteresis 和理论组合回撤 overlay；可选接入单个用户 custom factor。
+周频 allocation 策略。每周最后交易日收盘决策，输出通用 TargetPortfolio。策略使用 A 股系统因子、沪深300ETF regime、持仓 rank hysteresis 和理论组合回撤 overlay；可选接入单个用户 custom factor。详细逻辑、参数和运行方式见 [策略 README](src/xqatexp/strategy/strategies/weekly_market_guard_rank_v1/README.md)。
 
 ### staged_drawdown_v1
 
@@ -72,7 +72,7 @@ Linux 与 Windows 应分别创建自己的 Conda 环境，不共享同一个环�
 - 当前持仓周期累计实际买入 gross notional 上限为初始资金 100%；
 - 整体持仓收益率达到 10% 时，卖出当前持仓 20%。
 
-趋势使用复权后的 `research_close`；加仓锚点和持仓收益使用 `close_raw`。决策在 D 日收盘后产生，当前执行模型为 D+1 NEXT_OPEN，不模拟 9:15–9:25 集合竞价订单簿。
+趋势使用复权后的 `research_close`；加仓锚点和持仓收益使用 `close_raw`。决策在 D 日收盘后产生，当前执行模型为 D+1 NEXT_OPEN，不模拟 9:15–9:25 集合竞价订单簿。详细逻辑、参数和运行方式见 [策略 README](src/xqatexp/strategy/strategies/staged_drawdown_v1/README.md)。
 
 ### 策略源码组织
 

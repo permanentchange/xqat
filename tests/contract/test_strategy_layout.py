@@ -26,6 +26,7 @@ def test_builtin_strategies_have_isolated_source_and_unit_test_packages() -> Non
         "weekly_market_guard_rank_v1": {
             "source": {
                 "__init__.py",
+                "README.md",
                 "parameters.py",
                 "declaration.py",
                 "strategy.py",
@@ -44,6 +45,7 @@ def test_builtin_strategies_have_isolated_source_and_unit_test_packages() -> Non
         "staged_drawdown_v1": {
             "source": {
                 "__init__.py",
+                "README.md",
                 "parameters.py",
                 "declaration.py",
                 "strategy.py",

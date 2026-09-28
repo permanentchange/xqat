@@ -62,6 +62,7 @@ Intent sizing 当前支持：
 strategies/
 ├── weekly_market_guard_rank_v1/
 │   ├── __init__.py
+│   ├── README.md
 │   ├── parameters.py
 │   ├── declaration.py
 │   ├── strategy.py
@@ -70,12 +71,13 @@ strategies/
 │   └── drawdown.py
 └── staged_drawdown_v1/
     ├── __init__.py
+    ├── README.md
     ├── parameters.py
     ├── declaration.py
     └── strategy.py
 ```
 
-具体策略模块可以依赖共享 Decision/Intent/State/Schedule 合同；共享框架不能反向依赖某个策略的内部算法。唯一允许聚合所有具体策略的共享模块是 `registry.py`。
+每个具体策略目录包含自己的 `README.md`，作为该策略当前逻辑、参数、数据要求和运行方式的源码邻近说明。具体策略模块可以依赖共享 Decision/Intent/State/Schedule 合同；共享框架不能反向依赖某个策略的内部算法。唯一允许聚合所有具体策略的共享模块是 `registry.py`。
 
 策略专属 unit tests 镜像源码结构，位于 `tests/unit/strategy/strategies/<strategy_id>/`；共享 state 测试仍位于 `tests/unit/strategy/`。
 
