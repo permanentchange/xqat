@@ -328,12 +328,12 @@ StrategyState 与 AccountSnapshot 做一致性检查，冲突必须显式告警�
 - [x] Phase 8：Portfolio Validation 分层。
 - [x] Phase 9：Backtest / Daily 共享 Portfolio Planning primitives。
 - [x] Phase 10：StrategyDecision（已建立 deterministic decision id 与 `AllocationDecision`）。
-- [ ] Phase 11：DecisionExecutor。当前 BacktestEngine 仍直接负责 allocation decision 到 rebalance instruction 的转换，需要抽出 `AllocationDecisionExecutor`。
+- [x] Phase 11：DecisionExecutor。已新增 `AllocationDecisionExecutor` 与 `DecisionExecutorRouter`，BacktestEngine 不再直接编排 RebalancePlanner/ExecutionSimulator。
 - [x] Phase 12：Execution Provenance。
 - [x] Phase 13：SimulatedAccount 封装。
 - [x] Phase 14：Typed Account Events。
-- [ ] Phase 15：Strategy State。
-- [ ] Phase 16：TradeIntentDecision + IntentExecutor。
+- [x] Phase 15：Strategy State。已新增不可变 `StrategyStateSnapshot/View`、纯 `StrategyStateReducer` 与 confirmed AccountEvent 回放；partial fill / corporate action 已有测试。
+- [x] Phase 16：TradeIntentDecision + IntentExecutor。已支持 FixedNotional / InitialCapitalFraction / CurrentPositionFraction / FullPosition，并接入 BacktestEngine stateful 路径。
 - [ ] Phase 17：Stateful Daily。
 - [ ] Phase 18：Reporting 拆分。
 - [ ] Phase 19：staged drawdown strategy。
@@ -341,14 +341,6 @@ StrategyState 与 AccountSnapshot 做一致性检查，冲突必须显式告警�
 后续执行顺序按依赖调整为：
 
 ```text
-Phase 7 Generic TargetPortfolio / Diagnostics
-    ->
-Phase 11 DecisionExecutor
-    ->
-Phase 15 Strategy State
-    ->
-Phase 16 TradeIntentDecision / IntentExecutor
-    ->
 Phase 17 Stateful Daily
     ->
 Phase 18 Reporting decomposition
@@ -356,4 +348,4 @@ Phase 18 Reporting decomposition
 Phase 19 staged drawdown strategy
 ```
 
-每完成一个阶段，更新本节状态并保持提交可独立审查。由于当前自动化执行环境无法直接通过网络克隆 GitHub 仓库，本轮验证优先使用仓库的 GitHub Actions Linux/Windows CI；若某项无法由 CI 覆盖，会在执行结果中明确列为需要本地验证。
+每完成一个阶段，更新本节状态并保持提交可独立审查。Phase 11/15/16 已由 Linux 主 CI run #99 的完整离线测试、CLI help 与 offline self-check 验证通过。由于当前自动化执行环境无法直接通过网络克隆 GitHub 仓库，本轮验证优先使用仓库的 GitHub Actions Linux/Windows CI；若某项无法由 CI 覆盖，会在执行结果中明确列为需要本地验证。
