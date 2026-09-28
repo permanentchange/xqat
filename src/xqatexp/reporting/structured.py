@@ -60,26 +60,19 @@ def resolved_context_value(context: ResolvedRunContext) -> dict[str, object]:
 
 def target_value(target: TargetPortfolio) -> dict[str, object]:
     return {
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "strategy_id": target.strategy_id,
         "strategy_version": target.strategy_version,
         "decision_date": target.decision_date.isoformat(),
         "effective_from": target.effective_from.isoformat(),
-        "market_regime": target.market_regime,
-        "theoretical_drawdown": target.theoretical_drawdown,
-        "drawdown_window_trade_days": target.drawdown_window_trade_days,
-        "drawdown_observations": target.drawdown_observations,
-        "drawdown_overlay_level": target.drawdown_overlay_level,
         "positions": [
             {
                 "security_id": item.security_id,
                 "asset_type": item.asset_type,
                 "target_weight": item.target_weight,
-                "rank": item.rank,
-                "score": item.score,
                 "transition": item.transition,
                 "explanation_codes": list(item.explanation_codes),
-                "holding_age_weeks": item.holding_age_weeks,
+                "planning_priority": item.planning_priority,
             }
             for item in target.positions
         ],
@@ -128,9 +121,7 @@ def target_positions_csv(target: TargetPortfolio) -> bytes:
         "security_id",
         "asset_type",
         "target_weight",
-        "rank",
-        "score",
-        "holding_age_weeks",
+        "planning_priority",
         "transition",
         "explanation_codes",
     )
@@ -144,10 +135,8 @@ def target_positions_csv(target: TargetPortfolio) -> bytes:
                 "security_id": item.security_id,
                 "asset_type": item.asset_type.value,
                 "target_weight": format(item.target_weight, "f"),
-                "rank": "" if item.rank is None else item.rank,
-                "score": "" if item.score is None else repr(item.score),
-                "holding_age_weeks": (
-                    "" if item.holding_age_weeks is None else item.holding_age_weeks
+                "planning_priority": (
+                    "" if item.planning_priority is None else item.planning_priority
                 ),
                 "transition": "" if item.transition is None else item.transition.value,
                 "explanation_codes": ";".join(item.explanation_codes),
