@@ -60,6 +60,7 @@ class ResolvedRunContext:
     account_snapshot_path: Path | None = None
     previous_target_path: Path | None = None
     analysis_periods: tuple[AnalysisPeriod, ...] = ()
+    strategy_state_path: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
