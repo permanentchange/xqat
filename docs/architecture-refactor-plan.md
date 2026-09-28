@@ -363,6 +363,6 @@ Phase 19 staged drawdown strategy [DONE]
 
 ### 9.2 当前验证状态
 
-本轮按用户要求不等待 CI 结果再推进代码。仓库已补齐对应 unit/integration/e2e/contract 测试，但当前会话环境没有本地仓库执行环境，因此尚未在本地直接运行完整 pytest/Ruff/Mypy。后续若 CI 或用户本地运行暴露失败，应以失败日志为准修正，不回退上述领域边界。
+本轮按用户要求不等待 CI 结果再推进代码。随后已由用户在 Linux Conda `xqat` 环境中完成非联网测试验证：`python -m pytest -m "not live_tushare" -q`，结果为 `238 passed, 1 deselected`。这确认当前 unit / integration / e2e / contract 非 live 测试全部通过。live Tushare 测试仍需要本地 `TUSHARE_TOKEN`；Ruff / Mypy 可作为独立开发检查继续运行。
 
 Phase 17–19 生产代码 checkpoint：`e4ada4c1e4dedbbb8c1e9b9f0927ed109d6d3971`；使用说明同步 checkpoint：`9e3d4a924dbf8c699b8bda746355d8d6ca715286`。
