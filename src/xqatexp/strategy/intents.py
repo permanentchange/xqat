@@ -38,7 +38,7 @@ class CurrentPositionFraction:
 
 @dataclass(frozen=True, slots=True)
 class FullPosition:
-    pass
+    """Size an intent to the full current position."""
 
 
 IntentSizing: TypeAlias = (
