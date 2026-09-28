@@ -26,13 +26,22 @@ def stable_decision_id(
     return hashlib.sha256(payload).hexdigest()
 
 
-def stable_instruction_id(decision_id: str, security_id: str, side: str) -> str:
+def stable_instruction_id(
+    decision_id: str,
+    security_id: str,
+    side: str,
+    *,
+    intent_id: str | None = None,
+) -> str:
+    value = {
+        "decision_id": decision_id,
+        "security_id": security_id,
+        "side": side,
+    }
+    if intent_id is not None:
+        value["intent_id"] = intent_id
     payload = json.dumps(
-        {
-            "decision_id": decision_id,
-            "security_id": security_id,
-            "side": side,
-        },
+        value,
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
