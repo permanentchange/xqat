@@ -71,7 +71,6 @@ class SimulatedAccount:
                     self.ledger.append(SellableReleased(security_id, quantity))
         self._assert_invariants()
 
-
     def record_entitlement(
         self,
         *,
@@ -125,9 +124,7 @@ class SimulatedAccount:
         if is_split:
             return
         security_id, _, stock, _ = self.entitlements[event_id]
-        self.sellable_quantities[security_id] = (
-            self.sellable_quantities.get(security_id, 0) + stock
-        )
+        self.sellable_quantities[security_id] = self.sellable_quantities.get(security_id, 0) + stock
         self.ledger.append(SellableReleased(security_id, stock))
         self._assert_invariants()
 
