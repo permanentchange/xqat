@@ -309,6 +309,39 @@ class ResearchDataViewImpl:
         sample_day: date,
         custom_factors: CustomFactorView | None,
     ) -> float:
+        if requirement.dataset == "MARKET_HISTORY":
+            if not requirement.security_scope.startswith("SECURITY:"):
+                raise ResearchAccessError(
+                    "CONFIG_VALUE_INVALID: MARKET_HISTORY requires SECURITY scope"
+                )
+            allowed_fields = {
+                "open_raw",
+                "high_raw",
+                "low_raw",
+                "close_raw",
+                "pre_close_raw",
+                "volume_shares",
+                "amount_cny",
+                "research_open",
+                "research_high",
+                "research_low",
+                "research_close",
+            }
+            if not requirement.fields or not set(requirement.fields).issubset(allowed_fields):
+                raise ResearchAccessError(
+                    "CONFIG_VALUE_INVALID: unsupported MARKET_HISTORY fields"
+                )
+            security_id = requirement.security_scope.removeprefix("SECURITY:")
+            predicates = " AND ".join(f"{field} IS NOT NULL" for field in requirement.fields)
+            observed = _count(
+                self._connection.execute(
+                    "SELECT COUNT(*) FROM market_daily WHERE security_id=? "
+                    "AND trade_date=? AND available_from<=? AND "
+                    + predicates,
+                    [security_id, sample_day, sample_day],
+                )
+            )
+            return 1.0 if observed else 0.0
         if requirement.dataset == "MARKET_STATUS":
             active = self._active_a_shares(sample_day)
             if not active:
