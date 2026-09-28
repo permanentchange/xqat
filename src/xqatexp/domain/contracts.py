@@ -12,7 +12,6 @@ from xqatexp.domain.enums import (
     AccountScopeCompleteness,
     AssetType,
     FillStatus,
-    MarketRegime,
     OrderSide,
     PositionCompleteness,
     RunMode,
@@ -152,11 +151,9 @@ class TargetPosition:
     security_id: str
     asset_type: AssetType
     target_weight: Decimal
-    rank: int | None
-    score: float | None
     transition: TargetTransition | None
     explanation_codes: tuple[str, ...]
-    holding_age_weeks: int | None
+    planning_priority: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,11 +171,6 @@ class TargetPortfolio:
     strategy_version: str
     decision_date: date
     effective_from: date
-    market_regime: MarketRegime
-    theoretical_drawdown: Decimal
-    drawdown_window_trade_days: int
-    drawdown_observations: int
-    drawdown_overlay_level: str
     positions: tuple[TargetPosition, ...]
     transition_records: tuple[TargetTransitionRecord, ...]
     cash_weight: Decimal
