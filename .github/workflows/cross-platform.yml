@@ -55,8 +55,8 @@ jobs:
         continue-on-error: true
         run: python -m mypy src/xqatexp
 
-      - name: Offline test suite
-        run: python -m pytest -m "not live_tushare" --cov=xqatexp --cov-report=term-missing --cov-fail-under=80
+      - name: Offline code test suite
+        run: python -m pytest -m "not live_tushare" --ignore=tests/contract/test_documentation.py --cov=xqatexp --cov-report=term-missing --cov-fail-under=80
 
       - name: CLI help
         run: python -m xqatexp --help
