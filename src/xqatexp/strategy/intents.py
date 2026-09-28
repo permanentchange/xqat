@@ -5,7 +5,7 @@ from datetime import date
 from decimal import Decimal
 from typing import TypeAlias
 
-from xqatexp.domain.contracts import StrategyDiagnostics
+from xqatexp.domain.contracts import AllocationDecision, StrategyDiagnostics
 from xqatexp.domain.enums import OrderSide
 
 
@@ -65,3 +65,6 @@ class TradeIntentDecision:
     effective_from: date
     intents: tuple[TradeIntent, ...]
     diagnostics: StrategyDiagnostics | None = None
+
+
+StrategyDecision: TypeAlias = AllocationDecision | TradeIntentDecision
