@@ -12,6 +12,7 @@ from xqatexp.application.run_specs import BacktestRunSpec, DailyDecisionRunSpec
 from xqatexp.backtest.engine import BacktestEngine
 from xqatexp.daily.account_snapshot import parse_account_snapshot
 from xqatexp.daily.advice import DailyAdviceService
+from xqatexp.daily.stateful import StatefulDailyDecisionService
 from xqatexp.daily.target import DailyTargetService
 from xqatexp.domain.contracts import AccountSnapshot, ResolvedRunContext
 from xqatexp.domain.enums import OverwritePolicy, StateRequirement
@@ -24,6 +25,7 @@ from xqatexp.research.readiness import ReadinessChecker
 from xqatexp.research.session import ResearchSession
 from xqatexp.strategy.registry import StrategySpec, resolve_strategy_spec
 from xqatexp.strategy.state import StrategyStateReducer
+from xqatexp.strategy.state_io import load_strategy_state
 
 
 class StrategyWorkflowService:
@@ -67,6 +69,8 @@ class StrategyWorkflowService:
         run = DailyDecisionRunSpec.from_context(context)
         spec = self._strategy_spec(context)
         declaration = spec.declaration(context.parameters)
+        if declaration.state_requirement is StateRequirement.CONFIRMED_EXECUTION_STATE:
+            raise ValueError("STRATEGY_STATE_REQUIRED: use daily decide for stateful strategy")
         custom = self._custom(context, run.decision_date, spec)
         strategy = spec.create(context.parameters)
         previous = (
@@ -100,6 +104,61 @@ class StrategyWorkflowService:
             readiness.limitations,
             overwrite,
             decision=decision,
+        ).path
+
+    def daily_decision(
+        self,
+        context: ResolvedRunContext,
+        overwrite: OverwritePolicy,
+        run_started_at: datetime,
+    ) -> Path:
+        run = DailyDecisionRunSpec.from_context(context)
+        spec = self._strategy_spec(context)
+        declaration = spec.declaration(context.parameters)
+        if declaration.state_requirement is not StateRequirement.CONFIRMED_EXECUTION_STATE:
+            raise ValueError("STRATEGY_STATE_INVALID: strategy does not use confirmed state")
+        if context.strategy_state_path is None:
+            raise ValueError("STRATEGY_STATE_REQUIRED: strategy state input is required")
+        state = load_strategy_state(context.strategy_state_path)
+        if (
+            state.strategy_id != context.strategy_id
+            or state.strategy_version != context.strategy_version
+        ):
+            raise ValueError("STRATEGY_STATE_INVALID: state identity does not match config")
+        account = (
+            parse_account_snapshot(
+                context.account_snapshot_path,
+                run_started_at=run_started_at,
+            )
+            if context.account_snapshot_path is not None
+            else None
+        )
+        custom = self._custom(context, run.decision_date, spec)
+        strategy = spec.create(context.parameters)
+        with ResearchSession(
+            context.research_artifact_path,
+            declaration,
+            temporary_parent=context.output_path.parent,
+        ) as session:
+            view = session.view(run.decision_date)
+            readiness = ReadinessChecker().check(declaration, view, custom)
+            if not readiness.is_ready:
+                raise ValueError(f"{readiness.issues[0]}: daily input is not ready")
+            decision = StatefulDailyDecisionService().run(
+                strategy,
+                view,
+                state,
+                custom,
+                context.parameters,
+                account=account,
+            )
+        return self._publisher.publish_daily_decision(
+            context,
+            decision,
+            state,
+            (),
+            readiness.limitations,
+            overwrite,
         ).path
 
     def daily_advice(
