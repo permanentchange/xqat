@@ -115,8 +115,8 @@ def test_resolved_config_1_0_accepts_legacy_value_without_analysis_periods() -> 
     _registry().validate_json("resolved_config", value)
 
 
-def test_target_schema_requires_rolling_drawdown_metadata() -> None:
-    """Catches an old target schema that cannot identify the drawdown window."""
+def test_legacy_target_v1_still_requires_rolling_drawdown_metadata() -> None:
+    """Legacy v1 remains strict while new writers use the generic v2 contract."""
     value = {
         "schema_version": "1.0",
         "strategy_id": "weekly_market_guard_rank_v1",
@@ -135,28 +135,25 @@ def test_target_schema_requires_rolling_drawdown_metadata() -> None:
         _registry().validate_json("target_portfolio", value)
 
 
+def test_generic_target_v2_does_not_require_weekly_diagnostics() -> None:
+    _registry().validate_json("target_portfolio", _valid_target())
+
+
 def _valid_target() -> dict[str, object]:
     return {
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "strategy_id": "weekly_market_guard_rank_v1",
         "strategy_version": "1.0.0",
         "decision_date": "2026-09-04",
         "effective_from": "2026-09-07",
-        "market_regime": "STRONG",
-        "theoretical_drawdown": -0.01,
-        "drawdown_window_trade_days": 60,
-        "drawdown_observations": 60,
-        "drawdown_overlay_level": "NONE",
         "positions": [
             {
                 "security_id": "600000.SH",
                 "asset_type": "A_SHARE",
                 "target_weight": 0.04,
-                "rank": 1,
-                "score": 0.8,
                 "transition": None,
                 "explanation_codes": ["ENTRY_RANK"],
-                "holding_age_weeks": 0,
+                "planning_priority": 1,
             }
         ],
         "transition_records": [],
