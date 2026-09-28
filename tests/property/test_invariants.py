@@ -17,8 +17,8 @@ from xqatexp.backtest.account import SimulatedAccount
 from xqatexp.domain.contracts import ExecutionFees, ExecutionRecord, StrategyDeclaration
 from xqatexp.domain.enums import FillStatus, MarketRegime, OrderSide, OverwritePolicy
 from xqatexp.research.session import ResearchDataSliceImpl
-from xqatexp.strategy.scoring import score_cross_section
-from xqatexp.strategy.weekly_strategy import allocate_budget
+from xqatexp.strategy.strategies.weekly_market_guard_rank_v1.scoring import score_cross_section
+from xqatexp.strategy.strategies.weekly_market_guard_rank_v1.strategy import allocate_budget
 
 _WEIGHTS = {
     "momentum_60_ex5": Decimal("0.35"),

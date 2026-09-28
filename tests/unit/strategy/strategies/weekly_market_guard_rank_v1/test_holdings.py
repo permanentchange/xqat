@@ -1,7 +1,10 @@
 from decimal import Decimal
 
 from xqatexp.domain.enums import MarketRegime
-from xqatexp.strategy.weekly_strategy import allocate_budget, select_holdings
+from xqatexp.strategy.strategies.weekly_market_guard_rank_v1.strategy import (
+    allocate_budget,
+    select_holdings,
+)
 
 
 def test_budget_golden_vectors_and_pool_shortage() -> None:

@@ -1,4 +1,6 @@
-from xqatexp.strategy.declaration import strategy_declaration
+from xqatexp.strategy.strategies.weekly_market_guard_rank_v1.declaration import (
+    strategy_declaration,
+)
 
 
 def test_declaration_adds_custom_dependency_only_when_enabled() -> None:

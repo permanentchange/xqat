@@ -1,7 +1,11 @@
 from decimal import Decimal
 
 from xqatexp.domain.enums import MarketRegime
-from xqatexp.strategy.drawdown import DrawdownOverlay, OverlayLevel, rolling_drawdown
+from xqatexp.strategy.strategies.weekly_market_guard_rank_v1.drawdown import (
+    DrawdownOverlay,
+    OverlayLevel,
+    rolling_drawdown,
+)
 
 
 def test_rolling_60_drawdown_golden_points_59_to_62() -> None:

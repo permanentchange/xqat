@@ -4,7 +4,7 @@ from decimal import Decimal
 from xqatexp.backtest.engine import BacktestEngine
 from xqatexp.domain.enums import OrderSide
 from xqatexp.strategy.schedule import DailyCloseSchedule
-from xqatexp.strategy.staged_drawdown_strategy import StagedDrawdownStrategy
+from xqatexp.strategy.strategies.staged_drawdown_v1.strategy import StagedDrawdownStrategy
 from xqatexp.strategy.state import StrategyStateReducer
 
 

@@ -1,5 +1,7 @@
 from xqatexp.domain.enums import MarketRegime
-from xqatexp.strategy.market_regime import classify_market
+from xqatexp.strategy.strategies.weekly_market_guard_rank_v1.market_regime import (
+    classify_market,
+)
 
 
 def test_market_regime_exact_boundaries() -> None:

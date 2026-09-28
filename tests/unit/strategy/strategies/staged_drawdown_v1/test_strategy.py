@@ -3,8 +3,10 @@ from decimal import Decimal
 
 from xqatexp.domain.enums import OrderSide, StateRequirement
 from xqatexp.strategy.intents import CurrentPositionFraction, InitialCapitalFraction
-from xqatexp.strategy.staged_drawdown_declaration import staged_drawdown_declaration
-from xqatexp.strategy.staged_drawdown_strategy import StagedDrawdownStrategy
+from xqatexp.strategy.strategies.staged_drawdown_v1.declaration import (
+    staged_drawdown_declaration,
+)
+from xqatexp.strategy.strategies.staged_drawdown_v1.strategy import StagedDrawdownStrategy
 from xqatexp.strategy.state import (
     StrategyPositionState,
     StrategyStateSnapshot,
