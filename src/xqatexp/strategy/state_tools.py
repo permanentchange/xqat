@@ -4,7 +4,11 @@ from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 
-from xqatexp.backtest.account_events import SplitApplied, StockDistributionApplied, TradeFilled
+from xqatexp.backtest.account_events import (
+    SplitApplied,
+    StockDistributionApplied,
+    TradeFilled,
+)
 from xqatexp.domain.contracts import ExecutionFees, ExecutionRecord
 from xqatexp.domain.enums import FillStatus, OrderSide
 from xqatexp.strategy.registry import resolve_strategy_spec
