@@ -24,6 +24,7 @@
         "RESEARCH_DATA",
         "BACKTEST_RESULT",
         "DAILY_TARGET_RESULT",
+        "DAILY_DECISION_RESULT",
         "DAILY_ADVICE_RESULT",
         "FAILURE_DIAGNOSTIC"
       ]
