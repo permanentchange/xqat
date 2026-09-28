@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -317,9 +318,9 @@ def test_staged_drawdown_config_materializes_defaults_and_state_input(tmp_path: 
     assert context.strategy_id == "staged_drawdown_v1"
     assert context.parameters["security_id"] == "600000.SH"
     assert context.parameters["lookback_trade_days"] == 20
-    assert context.parameters["cumulative_decline_threshold"] == pytest.approx(0.10)
-    assert context.parameters["buy_fraction"] == pytest.approx(0.10)
-    assert context.parameters["sell_fraction"] == pytest.approx(0.20)
+    assert context.parameters["cumulative_decline_threshold"] == Decimal("0.10")
+    assert context.parameters["buy_fraction"] == Decimal("0.10")
+    assert context.parameters["sell_fraction"] == Decimal("0.20")
     assert context.strategy_state_path == (tmp_path / "state.json").resolve()
 
 
