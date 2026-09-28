@@ -4,6 +4,7 @@ from enum import StrEnum
 class RunMode(StrEnum):
     BACKTEST = "BACKTEST"
     DAILY_TARGET = "DAILY_TARGET"
+    DAILY_DECISION = "DAILY_DECISION"
     DAILY_ADVICE = "DAILY_ADVICE"
 
 
