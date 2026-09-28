@@ -110,6 +110,21 @@ Windows PowerShell：
 
 下一次 `daily decide` 应把 `staged-state-next.json` 作为 `--state`。如果同时提供 `--account`，系统只做明确的一致性校验；不会用账户快照自动修补 last buy price、成本基础或历史成交。
 
+如果发生已确认的送股或拆分，也不要手工改 state；用 `state apply-stock-adjustment` 写入实际新增股份，例如：
+
+```bash
+.venv/bin/xqatexp state apply-stock-adjustment \
+  --input .example-work/staged-state-next.json \
+  --effective-date 2026-09-08 \
+  --event-id distribution-20260908 \
+  --security-id 600000.SH \
+  --kind STOCK_DISTRIBUTION \
+  --added-quantity 1000 \
+  --output .example-work/staged-state-after-action.json
+```
+
+该操作保持剩余成本基础不变，并按持股扩张比例调整 `last_buy_price` 锚点。
+
 当前日线数据口径下，信号在 D 日收盘后生成，并从 D+1 开盘执行。20 日趋势使用复权后的 `research_close`；与“上次实际买入价”的加仓比较和整体持仓收益率使用 `close_raw`，与实际成交价保持同一价格口径。默认“缓慢下跌”定义为：20 个收盘观察内累计跌幅至少 10%、任一单日跌幅不超过 5%、19 个日收益中至少 12 天下跌；这些阈值都可在 `[strategy]` 中修改。
 
 止盈优先于继续加仓。剩余持仓成本基础包含买入费用，卖出后按持股比例释放成本；累计买入金额用于约束单轮持仓周期内的最大初始资金投入，完全清仓后下一次首次买入会开始新的累计周期。
