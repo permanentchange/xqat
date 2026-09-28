@@ -8,7 +8,9 @@ from tests.unit.portfolio.test_validation import target
 from xqatexp.backtest.engine import BacktestEngine
 from xqatexp.domain.contracts import TargetPosition
 from xqatexp.domain.enums import AssetType, OrderSide
+from xqatexp.strategy.intents import InitialCapitalFraction, TradeIntent, TradeIntentDecision
 from xqatexp.strategy.schedule import DailyCloseSchedule
+from xqatexp.strategy.state import StrategyStateReducer
 
 
 class _View:
@@ -253,3 +255,62 @@ def test_engine_uses_explicit_daily_decision_schedule() -> None:
         date(2026, 9, 11),
         date(2026, 9, 14),
     ]
+
+
+
+def test_stateful_strategy_sees_only_confirmed_execution_state() -> None:
+    seen = []
+
+    class StatefulStrategy:
+        def generate_stateful_decision(self, research, state, custom, parameters):
+            del custom, parameters
+            position = state.position("600000.SH")
+            seen.append(
+                (
+                    research.decision_date,
+                    None if position is None else position.quantity,
+                    None if position is None else position.last_buy_price,
+                )
+            )
+            intents = ()
+            if research.decision_date == date(2026, 9, 4):
+                intents = (
+                    TradeIntent(
+                        "intent-initial",
+                        "600000.SH",
+                        OrderSide.BUY,
+                        InitialCapitalFraction(Decimal("0.10")),
+                        ("INITIAL_ENTRY",),
+                    ),
+                )
+            return TradeIntentDecision(
+                f"decision-{research.decision_date.isoformat()}",
+                "stateful-test",
+                "1.0.0",
+                research.decision_date,
+                research._next_day,
+                intents,
+            )
+
+    result = BacktestEngine().run(
+        data=_Data(),
+        strategy=StatefulStrategy(),
+        parameters={},
+        custom=None,
+        start_date=date(2026, 9, 4),
+        end_date=date(2026, 9, 8),
+        initial_cash=Decimal("10000"),
+        execution_assumptions={
+            "slippage_bps": Decimal("0"),
+            "max_volume_participation": Decimal("0.10"),
+        },
+        schedule=DailyCloseSchedule(),
+        state_reducer=StrategyStateReducer("stateful-test", "1.0.0"),
+    )
+
+    assert seen[0] == (date(2026, 9, 4), None, None)
+    assert seen[1] == (date(2026, 9, 7), 100, Decimal("10"))
+    assert result.trades[0].filled_quantity == 100
+    assert result.strategy_state is not None
+    assert result.strategy_state.positions[0].quantity == 100
+    assert result.strategy_state.positions[0].remaining_cost_basis == Decimal("1005.01")
