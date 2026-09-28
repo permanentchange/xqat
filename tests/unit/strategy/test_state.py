@@ -87,3 +87,4 @@ def test_stock_distribution_and_split_preserve_economic_cost_basis() -> None:
     assert position.quantity == 240
     assert position.remaining_cost_basis == Decimal("1000")
     assert position.average_cost == Decimal("1000") / Decimal("240")
+    assert position.last_buy_price == Decimal("10") * Decimal("100") / Decimal("240")
