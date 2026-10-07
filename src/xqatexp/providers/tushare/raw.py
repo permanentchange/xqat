@@ -4,6 +4,8 @@ import gzip
 import hashlib
 import io
 import json
+import os
+import time
 import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -13,12 +15,18 @@ from typing import Protocol, cast
 
 from xqatexp import __version__
 from xqatexp.artifacts.manifest import canonical_json_bytes
-from xqatexp.artifacts.publisher import ArtifactPublisher, PublishedArtifact
+from xqatexp.artifacts.publisher import ArtifactPublisher, ArtifactPublishError, PublishedArtifact
 from xqatexp.artifacts.readers import ArtifactReader, ArtifactReadError
 from xqatexp.artifacts.schemas import SchemaRegistry
 from xqatexp.domain.enums import OverwritePolicy
 from xqatexp.providers.tushare.client import QueryResult
-from xqatexp.providers.tushare.registry import get_dataset, get_dataset_by_api
+from xqatexp.providers.tushare.registry import (
+    API_PAGE_SIZES,
+    DAILY_DATASETS,
+    VIP_APIS,
+    get_dataset,
+    get_dataset_by_api,
+)
 
 
 class QueryClient(Protocol):
@@ -36,6 +44,103 @@ class FetchRequest:
     fields: tuple[str, ...]
     output_path: Path
     existing_policy: OverwritePolicy
+    api_name: str | None = None
+    period: date | None = None
+
+
+def request_parameters(request: FetchRequest) -> dict[str, object]:
+    spec = get_dataset(request.dataset_id)
+    api = request.api_name or spec.api_name
+    if get_dataset_by_api(api).dataset_id != spec.dataset_id:
+        raise ValueError("CONFIG_VALUE_INVALID: API does not match dataset")
+    if request.start_date > request.end_date:
+        raise ValueError("CONFIG_VALUE_INVALID: fetch start_date exceeds end_date")
+    if request.fields and not set(spec.fields).issubset(request.fields):
+        raise ValueError("CONFIG_VALUE_INVALID: requested fields omit registered fields")
+    params: dict[str, object] = dict(spec.fixed_params)
+    if api in VIP_APIS.values():
+        if request.period is None or request.security_ids:
+            raise ValueError("CONFIG_VALUE_INVALID: VIP requires period and all-market scope")
+        if (request.period.month, request.period.day) not in ((3, 31), (6, 30), (9, 30), (12, 31)):
+            raise ValueError("CONFIG_VALUE_INVALID: period must be a quarter end")
+        if request.start_date != request.period or request.end_date != request.period:
+            raise ValueError("CONFIG_VALUE_INVALID: VIP date scope must equal report period")
+        params["period"] = request.period.strftime("%Y%m%d")
+    elif request.period is not None:
+        raise ValueError("CONFIG_VALUE_INVALID: period is supported only for VIP")
+    elif spec.dataset_id in DAILY_DATASETS and request.start_date == request.end_date:
+        params["trade_date"] = request.start_date.strftime("%Y%m%d")
+    elif spec.dataset_id in DAILY_DATASETS | {
+        "trade_calendar",
+        "fund_daily",
+        "fund_adj_factor",
+        "index_daily",
+        "income",
+        "fina_indicator",
+    }:
+        params.update(
+            start_date=request.start_date.strftime("%Y%m%d"),
+            end_date=request.end_date.strftime("%Y%m%d"),
+        )
+    if spec.dataset_id == "stock_basic" and request.security_ids:
+        raise ValueError(
+            "CONFIG_VALUE_INVALID: stock_basic fetch uses registered all-market slices"
+        )
+    if request.security_ids:
+        if len(request.security_ids) != 1:
+            raise ValueError("CONFIG_VALUE_INVALID: one security_id per Raw artifact is required")
+        params["ts_code"] = request.security_ids[0]
+    if (
+        spec.dataset_id in {"fund_daily", "fund_adj_factor", "income", "fina_indicator", "dividend"}
+        and "ts_code" not in params
+        and api not in VIP_APIS.values()
+    ):
+        raise ValueError(f"CONFIG_VALUE_INVALID: {spec.dataset_id} requires --security-id")
+    if spec.dataset_id == "stock_basic":
+        return {
+            "slices": [
+                {"exchange": exchange, "list_status": status}
+                for exchange in ("SSE", "SZSE")
+                for status in ("L", "D", "P", "G")
+            ]
+        }
+    if spec.dataset_id == "fund_basic":
+        return {"slices": [{**params, "status": status} for status in ("L", "D")]}
+    return params
+
+
+def request_identity(request: FetchRequest) -> dict[str, object]:
+    spec = get_dataset(request.dataset_id)
+    return {
+        "dataset_id": spec.dataset_id,
+        "api_name": request.api_name or spec.api_name,
+        "fields": list(request.fields or spec.fields),
+        "parameters": request_parameters(request),
+        "start": request.start_date.isoformat(),
+        "end": request.end_date.isoformat(),
+    }
+
+
+def partition_id(request: FetchRequest) -> str:
+    return hashlib.sha256(canonical_json_bytes(request_identity(request))).hexdigest()
+
+
+def artifact_matches(request: FetchRequest, path: Path) -> bool:
+    try:
+        if not RawCheckService().check(path).valid:
+            return False
+        opened = ArtifactReader().open(path)
+        recorded = json.loads((path / "request.json").read_text("utf-8"))
+        identity = request_identity(request)
+        return bool(
+            recorded["api_name"] == identity["api_name"]
+            and recorded["requested_fields"] == identity["fields"]
+            and recorded["parameters"] == identity["parameters"]
+            and opened.manifest["date_scope"]
+            == {"start": identity["start"], "end": identity["end"]}
+        )
+    except (OSError, ValueError, KeyError):
+        return False
 
 
 class RawFetchService:
@@ -53,46 +158,36 @@ class RawFetchService:
         self._clock = clock
 
     def fetch(self, request: FetchRequest) -> PublishedArtifact:
-        if request.start_date > request.end_date:
-            raise ValueError("CONFIG_VALUE_INVALID: fetch start_date exceeds end_date")
         spec = get_dataset(request.dataset_id)
         fields = request.fields or spec.fields
-        if not set(spec.fields).issubset(fields):
-            raise ValueError("CONFIG_VALUE_INVALID: requested fields omit registered fields")
-        params: dict[str, object] = dict(spec.fixed_params)
-        daily_datasets = {
-            "stock_daily",
-            "stock_adj_factor",
-            "stock_daily_basic",
-            "stock_suspend",
-            "stock_price_limit",
-            "stock_st_status",
-        }
-        if spec.dataset_id in daily_datasets and request.start_date == request.end_date:
-            params["trade_date"] = request.start_date.strftime("%Y%m%d")
-        elif spec.dataset_id in daily_datasets | {
-            "trade_calendar",
-            "fund_daily",
-            "fund_adj_factor",
-            "index_daily",
-            "income",
-            "fina_indicator",
-        }:
-            params["start_date"] = request.start_date.strftime("%Y%m%d")
-            params["end_date"] = request.end_date.strftime("%Y%m%d")
-        if request.security_ids:
-            if len(request.security_ids) != 1:
-                raise ValueError(
-                    "CONFIG_VALUE_INVALID: one security_id per Raw artifact is required"
+        api_name = request.api_name or spec.api_name
+        params = request_parameters(request)
+        target = Path(os.path.abspath(request.output_path))
+        for component in (target, *target.parents):
+            if component.is_symlink() or getattr(component, "is_junction", lambda: False)():
+                raise ArtifactPublishError(
+                    "ARTIFACT_UNSAFE_OUTPUT_PATH: symlink or junction in output path"
                 )
-            params["ts_code"] = request.security_ids[0]
-        if (
-            spec.dataset_id
-            in {"fund_daily", "fund_adj_factor", "income", "fina_indicator", "dividend"}
-            and "ts_code" not in params
-        ):
-            raise ValueError(f"CONFIG_VALUE_INVALID: {spec.dataset_id} requires --security-id")
-        result, recorded_params = self._query(spec.dataset_id, spec.api_name, fields, params)
+        if target == Path(target.anchor) or target == Path.cwd().resolve():
+            raise ArtifactPublishError(f"ARTIFACT_UNSAFE_OUTPUT_PATH: {target}")
+        if request.output_path.exists():
+            if request.existing_policy is OverwritePolicy.ERROR:
+                raise ArtifactPublishError("ARTIFACT_OUTPUT_EXISTS: Raw output exists")
+            if request.existing_policy is OverwritePolicy.SKIP:
+                if not artifact_matches(request, request.output_path):
+                    raise ValueError("DATA_INPUT_CORRUPT: existing Raw does not match request")
+                opened = ArtifactReader().open(request.output_path)
+                digest = hashlib.sha256((opened.path / "manifest.json").read_bytes()).hexdigest()
+                return PublishedArtifact(opened.path, digest, opened.verified_files)
+        started = self._clock()
+        result, recorded_params = self._query(spec.dataset_id, api_name, fields, params)
+        for record in result.records:
+            if params.get("trade_date") and record.get("trade_date") != params["trade_date"]:
+                raise ValueError("DATA_PROVIDER_SCHEMA_MISMATCH: wrong trade_date in response")
+            if params.get("period") and record.get("end_date") != params["period"]:
+                raise ValueError("DATA_PROVIDER_SCHEMA_MISMATCH: wrong report period in response")
+            if params.get("ts_code") and record.get("ts_code") != params["ts_code"]:
+                raise ValueError("DATA_PROVIDER_SCHEMA_MISMATCH: wrong security in response")
         if not result.records and not spec.empty_allowed:
             raise ValueError(f"DATA_PROVIDER_EMPTY_RESPONSE: {request.dataset_id}")
         now = self._clock()
@@ -104,13 +199,13 @@ class RawFetchService:
                 "schema_version": "1.0",
                 "request_id": request_id,
                 "provider": "tushare",
-                "api_name": spec.api_name,
+                "api_name": api_name,
                 "requested_fields": list(fields),
                 "parameters": recorded_params,
                 "page_number": 1,
                 "offset": 0,
                 "limit": max(1, len(result.records)),
-                "started_at": timestamp,
+                "started_at": started.isoformat().replace("+00:00", "Z"),
                 "completed_at": timestamp,
                 "attempt_count": result.attempts,
                 "response_row_count": len(result.records),
@@ -151,8 +246,16 @@ class RawFetchService:
                 "limitations": [],
             }
             (staging / "manifest.json").write_bytes(canonical_json_bytes(manifest))
+            if not RawCheckService().check(staging).valid:
+                raise ValueError("DATA_PROVIDER_SCHEMA_MISMATCH: invalid Raw business keys or rows")
 
-        return self._publisher.publish(build, request.output_path, request.existing_policy)
+        publishing = time.monotonic()
+        try:
+            return self._publisher.publish(build, request.output_path, request.existing_policy)
+        finally:
+            metric = getattr(self._client, "_metric", None)
+            if callable(metric):
+                metric("publish_seconds", time.monotonic() - publishing)
 
     def _query(
         self,
@@ -164,25 +267,28 @@ class RawFetchService:
         query_all = getattr(self._client, "query_all", None)
         if not callable(query_all):
             return self._client.query(api_name, fields, params), params
-        slices: tuple[dict[str, object], ...]
-        if dataset_id == "stock_basic":
-            slices = tuple(
-                {"exchange": exchange, "list_status": status}
-                for exchange in ("SSE", "SZSE")
-                for status in ("L", "D", "P", "G")
+        probe_attempts = 0
+        if api_name in VIP_APIS.values():
+            verify = getattr(self._client, "verify_pagination", None)
+            if callable(verify):
+                probe_attempts = int(verify(api_name, fields, params) or 0)
+        if "slices" not in params:
+            result = cast(
+                QueryResult, query_all(api_name, fields, params, page_size=API_PAGE_SIZES[api_name])
             )
-        elif dataset_id == "fund_basic":
-            slices = tuple({**params, "status": status} for status in ("L", "D"))
-        else:
-            result = cast(QueryResult, query_all(api_name, fields, params, page_size=5000))
-            return result, params
+            return QueryResult(
+                result.fields, result.records, result.attempts + probe_attempts, result.page_numbers
+            ), params
+        slices = cast(list[dict[str, object]], params["slices"])
         records: list[dict[str, object]] = []
         page_numbers: list[int] = []
         attempts = 0
         returned_fields: tuple[str, ...] | None = None
         page_offset = 0
         for item in slices:
-            result = cast(QueryResult, query_all(api_name, fields, item, page_size=5000))
+            result = cast(
+                QueryResult, query_all(api_name, fields, item, page_size=API_PAGE_SIZES[api_name])
+            )
             if returned_fields is None:
                 returned_fields = result.fields
             elif result.fields != returned_fields:
@@ -196,7 +302,7 @@ class RawFetchService:
             QueryResult(
                 returned_fields or tuple(fields), tuple(records), attempts, tuple(page_numbers)
             ),
-            {"slices": list(slices)},
+            params,
         )
 
     @staticmethod
@@ -256,12 +362,16 @@ class RawCheckService:
         try:
             opened = self._reader.open(path)
             request = json.loads((opened.path / "request.json").read_text(encoding="utf-8"))
+            if opened.manifest["artifact_type"] != "RAW_DATA":
+                return RawCheckReport(False, 0, ("DATA_INPUT_CORRUPT",))
             spec = get_dataset_by_api(str(request["api_name"]))
             requested_fields = tuple(str(field) for field in request["requested_fields"])
             issues: set[str] = set()
             if not set(spec.fields).issubset(requested_fields):
                 issues.add("DATA_REQUIRED_MISSING")
             records = self._read_records(opened.path / "response.jsonl.gz", issues)
+            if request["response_row_count"] != len(records):
+                issues.add("DATA_INPUT_CORRUPT")
             seen: set[tuple[object, ...]] = set()
             for record in records:
                 if not set(spec.fields).issubset(record):

@@ -151,7 +151,7 @@ def test_token_bucket_waits_before_request_when_capacity_is_exhausted() -> None:
     assert sleeps == [1.0]
 
 
-def test_query_all_pages_by_stable_offset_until_short_page() -> None:
+def test_query_all_pages_by_actual_offset_until_empty_page() -> None:
     """Catches truncated data or unstable offsets at a provider row limit."""
     offsets: list[int] = []
 
@@ -162,6 +162,7 @@ def test_query_all_pages_by_stable_offset_until_short_page() -> None:
         rows = {
             0: [["600000.SH"], ["000001.SZ"]],
             2: [["600001.SH"]],
+            3: [],
         }[offset]
         return httpx.Response(
             200,
@@ -176,10 +177,10 @@ def test_query_all_pages_by_stable_offset_until_short_page() -> None:
     )
     result = client.query_all("stock_basic", ("ts_code",), {"exchange": "SSE"}, page_size=2)
 
-    assert offsets == [0, 2]
+    assert offsets == [0, 2, 3]
     assert [row["ts_code"] for row in result.records] == [
         "600000.SH",
         "000001.SZ",
         "600001.SH",
     ]
-    assert result.attempts == 2
+    assert result.attempts == 3

@@ -1,0 +1,10 @@
+# 5000-point profile; credentials come only from TUSHARE_TOKEN.
+calls_per_minute = 420
+workers = 4
+max_attempts = 5
+timeout_seconds = 30
+
+# Optional per-interface ceilings share the process-wide 420/min budget.
+# [api_limits]
+# income_vip = 300
+# fina_indicator_vip = 300

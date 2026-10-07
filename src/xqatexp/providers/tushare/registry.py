@@ -187,7 +187,42 @@ def get_dataset(dataset_id: str) -> DatasetSpec:
         raise ValueError(f"CONFIG_VALUE_INVALID: unknown dataset_id {dataset_id}") from error
 
 
+API_PAGE_SIZES = {
+    "stock_basic": 5000,
+    "trade_cal": 1000,
+    "daily": 6000,
+    "adj_factor": 5000,
+    "daily_basic": 6000,
+    "suspend_d": 1000,
+    "stk_limit": 5800,
+    "stock_st": 1000,
+    "fund_basic": 5000,
+    "fund_daily": 1000,
+    "fund_adj": 1000,
+    "index_daily": 1000,
+    "income": 100,
+    "fina_indicator": 100,
+    "dividend": 100,
+    "income_vip": 1000,
+    "fina_indicator_vip": 1000,
+}
+VIP_APIS = {"income": "income_vip", "fina_indicator": "fina_indicator_vip"}
+DAILY_DATASETS = frozenset(
+    {
+        "stock_daily",
+        "stock_adj_factor",
+        "stock_daily_basic",
+        "stock_suspend",
+        "stock_price_limit",
+        "stock_st_status",
+    }
+)
+
+
 def get_dataset_by_api(api_name: str) -> DatasetSpec:
+    for dataset_id, vip_api in VIP_APIS.items():
+        if api_name == vip_api:
+            return get_dataset(dataset_id)
     matches = tuple(spec for spec in _DATASETS.values() if spec.api_name == api_name)
     if len(matches) != 1:
         raise ValueError(f"DATA_PROVIDER_SCHEMA_MISMATCH: unknown api_name {api_name}")

@@ -85,7 +85,7 @@ class _DuplicateDailyClient(_DailyClient):
         )
 
 
-def test_raw_check_reports_duplicate_business_keys(tmp_path: Path) -> None:
+def test_raw_fetch_rejects_duplicate_business_keys_before_publication(tmp_path: Path) -> None:
     """Catches conflicting provider facts being silently deduplicated."""
     raw = importlib.import_module("xqatexp.providers.tushare.raw")
     output = tmp_path / "stock-daily"
@@ -98,11 +98,13 @@ def test_raw_check_reports_duplicate_business_keys(tmp_path: Path) -> None:
         output_path=output,
         existing_policy=OverwritePolicy.ERROR,
     )
-    raw.RawFetchService(_DuplicateDailyClient()).fetch(request)
+    import pytest
 
-    report = raw.RawCheckService().check(output)
-    assert report.valid is False
-    assert report.issue_codes == ("DATA_CONFLICT",)
+    from xqatexp.artifacts.publisher import ArtifactPublishError
+
+    with pytest.raises(ArtifactPublishError, match="DATA_PROVIDER_SCHEMA_MISMATCH"):
+        raw.RawFetchService(_DuplicateDailyClient()).fetch(request)
+    assert not output.exists()
 
 
 class _RangeClient:
@@ -114,7 +116,7 @@ class _RangeClient:
 
     def query_all(self, api_name, fields, params, *, page_size):
         self.params = params
-        assert page_size == 5000
+        assert page_size == 6000
         records = tuple(
             {
                 "ts_code": "600000.SH",
