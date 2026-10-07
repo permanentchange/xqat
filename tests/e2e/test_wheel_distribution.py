@@ -32,3 +32,5 @@ def test_wheel_is_platform_neutral_and_contains_top_level_schemas(tmp_path: Path
     assert wheel.name.endswith("-py3-none-any.whl")
     with zipfile.ZipFile(wheel) as archive:
         assert any(name.startswith("schemas/") for name in archive.namelist())
+        assert "schemas/raw_collection.schema.json" in archive.namelist()
+        assert "schemas/batch_result.schema.json" in archive.namelist()

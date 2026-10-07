@@ -1,0 +1,34 @@
+# Retain start when extending end; financial history includes TTM warmup.
+start = "2024-01-01"
+end = "2026-09-10"
+period_start = "2022-03-31"
+period_end = "2026-06-30"
+datasets = [
+  "stock_daily", "stock_adj_factor", "stock_daily_basic", "stock_price_limit",
+  "income", "fina_indicator", "stock_suspend", "stock_st_status",
+]
+refresh_days = 5
+refresh_periods = 8
+
+[[requests]]
+dataset = "stock_basic"
+
+[[requests]]
+dataset = "fund_basic"
+
+[[requests]]
+dataset = "fund_daily"
+security_id = "510300.SH"
+
+[[requests]]
+dataset = "fund_adj_factor"
+security_id = "510300.SH"
+
+[[requests]]
+dataset = "index_daily"
+
+# Expands from stock_basic, including delisted stocks. Ordinary per-stock API;
+# this auxiliary step is more expensive than the six optimized datasets.
+[[requests]]
+dataset = "dividend"
+security_id = "*"

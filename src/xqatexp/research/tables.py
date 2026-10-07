@@ -21,7 +21,8 @@ from xqatexp.artifacts.publisher import ArtifactPublisher, PublishedArtifact
 from xqatexp.artifacts.readers import ArtifactReader, ArtifactReadError
 from xqatexp.artifacts.schemas import SchemaRegistry, SchemaValidationError
 from xqatexp.domain.enums import OverwritePolicy
-from xqatexp.providers.tushare.registry import get_dataset_by_api
+from xqatexp.providers.tushare.collection import FINANCIAL_DATASETS, merge_financial_records
+from xqatexp.providers.tushare.registry import get_dataset, get_dataset_by_api
 from xqatexp.research.factors import (
     annualized_log_slope,
     average_rank_percentiles,
@@ -382,6 +383,17 @@ class ResearchBuilder:
                 grouped[spec.dataset_id].extend(json.loads(line) for line in stream)
             digest = hashlib.sha256((opened.path / "manifest.json").read_bytes()).hexdigest()
             inputs.append((f"raw-{index:04d}", digest, root.name))
+        if "trade_calendar" in grouped:
+            calendars = {
+                tuple(record[key] for key in get_dataset("trade_calendar").business_key): record
+                for record in grouped["trade_calendar"]
+            }
+            grouped["trade_calendar"] = list(calendars.values())
+        for dataset in FINANCIAL_DATASETS:
+            if dataset in grouped:
+                grouped[dataset] = merge_financial_records(
+                    grouped[dataset], get_dataset(dataset).business_key
+                )
         return grouped, tuple(inputs)
 
     def _transform(self, raw: RawMap, config: ResearchBuildConfig) -> dict[str, pa.Table]:
@@ -425,7 +437,9 @@ class ResearchBuilder:
                 "source_hash": _source_hash((record,)),
             }
         if raw.get("index_daily"):
-            record = raw["index_daily"][0]
+            record = min(
+                raw["index_daily"], key=lambda item: (str(item["trade_date"]), str(item["ts_code"]))
+            )
             masters["000300.SH"] = {
                 "security_id": "000300.SH",
                 "symbol": "000300",

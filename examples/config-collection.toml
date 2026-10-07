@@ -1,0 +1,19 @@
+schema_version = "1.0"
+mode = "BACKTEST"
+strategy_id = "weekly_market_guard_rank_v1"
+strategy_version = "1.0.0"
+research_artifact = "data/research/weekly-collection"
+start_date = "2024-01-01"
+end_date = "2026-09-10"
+output = ".local/weekly-collection-result"
+
+[strategy]
+csi300_etf_id = "510300.SH"
+
+[execution]
+initial_cash = 1000000
+price_model = "NEXT_OPEN"
+slippage_bps = 10
+max_volume_participation = 0.10
+fee_schedule_id = "cn_cash_market_default_v1"
+dividend_tax_model = "PROVIDER_AFTER_TAX"

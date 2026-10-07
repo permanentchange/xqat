@@ -15,12 +15,14 @@ class SchemaValidationError(ValueError):
 _SCHEMA_IDS = (
     "account_snapshot",
     "artifact_manifest",
+    "batch_result",
     "custom_factor_input",
     "failure_diagnostic",
     "issues",
     "metrics",
     "period_metrics",
     "portfolio_daily",
+    "raw_collection",
     "raw_request",
     "raw_response",
     "research_tables",
@@ -39,6 +41,8 @@ _SCHEMA_IDS = (
 _JSON_FILES = {
     "account_snapshot": "account_snapshot.schema.json",
     "artifact_manifest": "artifact_manifest.schema.json",
+    "batch_result": "batch_result.schema.json",
+    "raw_collection": "raw_collection.schema.json",
     "failure_diagnostic": "failure_diagnostic.schema.json",
     "issues": "issues.schema.json",
     "metrics": "metrics.schema.json",

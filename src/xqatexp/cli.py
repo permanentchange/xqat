@@ -8,10 +8,11 @@ import sys
 import tomllib
 import uuid
 from collections.abc import Sequence
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 from xqatexp.application.services import SelfCheckService
 from xqatexp.application.workflows import StrategyWorkflowService
@@ -23,10 +24,13 @@ from xqatexp.config import resolve_config
 from xqatexp.domain.contracts import CustomFactorInput
 from xqatexp.domain.enums import OrderSide, OverwritePolicy
 from xqatexp.operations.logging import JsonlEventLogger
+from xqatexp.providers.tushare.batch import BatchPlan, BatchRunner, dry_run
 from xqatexp.providers.tushare.capability import CapabilityProbe
-from xqatexp.providers.tushare.client import TokenBucket, TushareClient, TushareError
+from xqatexp.providers.tushare.client import TushareError
+from xqatexp.providers.tushare.collection import collection_roots, index_collection
 from xqatexp.providers.tushare.raw import FetchRequest, RawCheckService, RawFetchService
 from xqatexp.providers.tushare.registry import dataset_ids
+from xqatexp.providers.tushare.runtime import ProviderConfig, ProviderRuntime
 from xqatexp.reporting.failure import FailureDiagnosticPublisher
 from xqatexp.reporting.readers import load_target
 from xqatexp.research.custom_factors import CustomFactorCheckService
@@ -63,14 +67,30 @@ def _build_parser() -> argparse.ArgumentParser:
     fetch.add_argument("--security-id", action="append", default=[])
     fetch.add_argument("--output", required=True, type=Path)
     fetch.add_argument("--existing", choices=("error", "skip", "overwrite"), default="error")
+    fetch.add_argument("--provider-config", type=Path)
+    fetch.add_argument("--api", choices=("income_vip", "fina_indicator_vip"))
+    fetch.add_argument("--period", type=date.fromisoformat)
+    batch = data_commands.add_parser("fetch-batch")
+    batch.add_argument("--plan", required=True, type=Path)
+    batch.add_argument("--output", required=True, type=Path)
+    batch.add_argument("--provider-config", type=Path)
+    batch.add_argument("--mode", choices=("bootstrap", "update"), default="bootstrap")
+    batch.add_argument("--dry-run", action="store_true")
+    collection = data_commands.add_parser("collection")
+    collection_commands = collection.add_subparsers(dest="collection_command")
+    index = collection_commands.add_parser("index")
+    index.add_argument("--input", required=True, type=Path)
     capabilities = data_commands.add_parser("capabilities")
     capabilities.add_argument("--output", required=True, type=Path)
     capabilities.add_argument("--trade-date")
+    capabilities.add_argument("--provider-config", type=Path)
     check_raw = data_commands.add_parser("check-raw")
     check_raw.add_argument("--input", required=True, type=Path)
     check_raw.add_argument("--report", required=True, type=Path)
     build = data_commands.add_parser("build")
-    build.add_argument("--raw-root", required=True, action="append", type=Path)
+    build_inputs = build.add_mutually_exclusive_group(required=True)
+    build_inputs.add_argument("--raw-root", action="append", default=[], type=Path)
+    build_inputs.add_argument("--raw-collection", type=Path)
     build.add_argument("--config", required=True, type=Path)
     build.add_argument("--output", required=True, type=Path)
     build.add_argument("--existing", choices=("error", "skip", "overwrite"), default="error")
@@ -230,6 +250,9 @@ def _validate_cli_path_graph(args: argparse.Namespace) -> None:
         "file",
         "research",
         "base",
+        "plan",
+        "provider_config",
+        "raw_collection",
     ):
         value = getattr(args, name, None)
         if isinstance(value, Path):
@@ -530,12 +553,50 @@ def _show_result(path: Path, output_format: str) -> int:
 
 def _run_data(args: argparse.Namespace) -> int:
     try:
+        if args.data_command == "collection":
+            if args.collection_command != "index":
+                raise ValueError("CONFIG_COMMAND_REQUIRED: choose a collection subcommand")
+            value = index_collection(args.input)
+            print(f"COLLECTION_INDEXED entries={len(value['entries'])} output={args.input}")
+            return 0
+        if args.data_command == "fetch-batch":
+            plan = BatchPlan.load(args.plan)
+            config = ProviderConfig.load(args.provider_config)
+            if args.dry_run:
+                print(json.dumps(dry_run(plan, args.output), ensure_ascii=False, sort_keys=True))
+                return 0
+            with ProviderRuntime(load_tushare_token(os.environ), config) as runtime:
+                last_update = [0.0]
+
+                def progress(report: dict[str, Any]) -> None:
+                    import time
+
+                    now = time.monotonic()
+                    if now - last_update[0] >= 10:
+                        print(f"BATCH_PROGRESS completed={len(report['tasks'])}", file=sys.stderr)
+                        last_update[0] = now
+
+                report = BatchRunner(
+                    runtime.client,
+                    workers=config.workers,
+                    cancelled=runtime.cancelled,
+                    progress=progress,
+                    configuration=asdict(config),
+                ).run(
+                    plan,
+                    args.output,
+                    mode=args.mode,
+                )
+            print(
+                f"BATCH_COMPLETE complete={report['complete']} "
+                f"report={args.output / 'batch-result.json'}"
+            )
+            return 0 if report["complete"] else 5
         if args.data_command == "capabilities":
             token = load_tushare_token(os.environ)
             probe_date = args.trade_date or _previous_weekday(date.today()).strftime("%Y%m%d")
-            results = CapabilityProbe(
-                TushareClient(token, rate_limiter=TokenBucket(calls_per_minute=200))
-            ).run(dataset_ids(), trade_date=probe_date)
+            with ProviderRuntime(token, ProviderConfig.load(args.provider_config)) as runtime:
+                results = CapabilityProbe(runtime.client).run(dataset_ids(), trade_date=probe_date)
             value = {
                 "schema_version": "1.0",
                 "provider": "tushare",
@@ -565,10 +626,11 @@ def _run_data(args: argparse.Namespace) -> int:
                 fields=(),
                 output_path=args.output,
                 existing_policy=OverwritePolicy(args.existing.upper()),
+                api_name=args.api,
+                period=args.period,
             )
-            published = RawFetchService(
-                TushareClient(token, rate_limiter=TokenBucket(calls_per_minute=200))
-            ).fetch(request)
+            with ProviderRuntime(token, ProviderConfig.load(args.provider_config)) as runtime:
+                published = RawFetchService(runtime.client).fetch(request)
             print(f"RAW_WRITTEN output={published.path}")
             return 0
         if args.data_command == "check-raw":
@@ -605,7 +667,12 @@ def _run_data(args: argparse.Namespace) -> int:
             build_config = _research_build_config(args.config, args.existing)
             builder = ResearchBuilder()
             if args.data_command == "build":
-                published = builder.build(tuple(args.raw_root), build_config, args.output)
+                roots = (
+                    collection_roots(args.raw_collection)
+                    if args.raw_collection
+                    else tuple(args.raw_root)
+                )
+                published = builder.build(roots, build_config, args.output)
             else:
                 published = builder.update(
                     args.base, tuple(args.raw_root), build_config, args.output
