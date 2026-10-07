@@ -31,7 +31,7 @@
 1. 至少需要 313 个交易日，否则报 `STRATEGY_WARMUP_INSUFFICIENT`。
 2. 使用最近 252 个交易日作为正式重放窗口。
 3. 在这 252 个交易日中取每周最后一个交易日作为内部周决策点。
-4. 当前外部 decision date 本身也必须是周内最后一个交易日，否则拒绝生成目标。
+4. 回测由 WeeklyLastTradingDayCloseSchedule 选择每周最后交易日；Daily Target 不单独执行 schedule 检查，截断窗口的最后一日会成为内部周决策点。手工 Daily 应选择真实周末交易日。
 
 ### 2.2 市场状态
 
@@ -215,467 +215,44 @@ dividend_tax_model = "PROVIDER_AFTER_TAX"
 
 未写出的 strategy 参数使用本 README 第 3 节默认值。
 
-## 6. 怎么运行
+## 6. 运行
 
-### 6.1 离线示例数据
-
-先生成仓库自带的离线 Research Artifact：
-
-```bash
-python examples/generate_offline_example.py --root .example-work
-xqatexp data check-research   --input .example-work/research   --report .example-work/research-check.json
-```
-
-### 6.2 Backtest
-
-```bash
-xqatexp backtest run   --config examples/config-offline.toml   --start-date 2026-08-31   --end-date 2026-09-07   --output .example-work/weekly-backtest
-```
-
-查看：
-
-```bash
-xqatexp result show   --input .example-work/weekly-backtest   --format markdown
-```
-
-### 6.3 Daily Target
-
-decision date 必须是该周最后一个交易日：
-
-```bash
-xqatexp daily target   --config examples/config-offline.toml   --decision-date 2026-09-04   --output .example-work/weekly-target
-```
-
-若要提供上一期目标以生成 transition：
-
-```bash
-xqatexp daily target   --config examples/config-offline.toml   --decision-date 2026-09-04   --previous-target /path/to/previous-target   --output .example-work/weekly-target
-```
-
-### 6.4 Custom Factor
-
-CSV 固定列：
-
-```text
-factor_name,security_id,factor_date,factor_value
-```
-
-先检查：
-
-```bash
-xqatexp factor check   --file /path/to/custom-factor.csv   --research /path/to/research   --strategy weekly_market_guard_rank_v1   --start 2025-01-01   --end 2026-01-01   --report .local/custom-factor-check.json
-```
-
-然后在配置中设置 `custom_factor_name` 和非零 `custom_factor_weight`，运行命令时增加：
-
-```bash
---custom-factor /path/to/custom-factor.csv
-```
-
-## 7. 使用真实 Tushare 数据回测
-
-weekly 策略和单证券策略不同：它需要完整 A 股横截面、财务快照、市场状态以及沪深300 ETF 因子。因此真实回测的数据准备量明显更大。
-
-下面以：
-
-```text
-沪深300 ETF: 510300.SH
-正式回测:    2025-01-01 ~ 2026-09-01
-```
-
-为例。
-
-### 7.1 Warmup 范围
-
-weekly 策略要求至少 313 个交易日，并在每个决策日内部重放最近 252 个交易日。
-
-因此，如果正式回测从 2025-01-01 开始，**只下载 2024-01-01 之后的数据不够**。
-
-推荐：
-
-```text
-市场/行情 Raw: 2023-08-01 ~ 2026-09-10
-正式回测:      2025-01-01 ~ 2026-09-01
-```
-
-其中 2023-08 至 2024 年主要用于 warmup；2026-09-01 之后多保留几个交易日，用于最后决策日解析下一交易日。
-
-如果坚持只准备 2024-01-01 之后的数据，就必须把正式回测起点推迟到 Research Artifact 已累计至少 313 个交易日之后。
-
-### 7.2 检查 Tushare 权限
+从仓库根目录执行，先激活 `xqat` 环境并生成离线 Research：
 
 ```bash
 conda activate xqat
-export TUSHARE_TOKEN="<在本机填写你的 Token>"
-test -n "$TUSHARE_TOKEN" && echo "TUSHARE_TOKEN is set"
-
-mkdir -p .local
-xqatexp data capabilities --output .local/tushare-capabilities.json
+python examples/generate_offline_example.py --root .example-work
+xqatexp daily target --config examples/config-offline.toml --decision-date 2026-09-04 --output .example-work/daily-target
+xqatexp daily advise --config examples/config-offline.toml --target .example-work/daily-target --account examples/account-complete.json --output .example-work/daily-advice
+xqatexp backtest run --config examples/config-offline.toml --start-date 2026-08-31 --end-date 2026-09-07 --output .example-work/backtest
+xqatexp result show --input .example-work/backtest --format markdown
 ```
 
-weekly 全市场流程涉及的接口较多，尤其是 `stock_st_status`、财务和 ETF 数据。开始大批量下载前，应先确认当前 Tushare 账户具有相应权限。
-
-### 7.3 创建目录
+输出使用新路径，或显式指定 Artifact 覆盖策略。自定义因子流程：
 
 ```bash
-mkdir -p data/raw/weekly-real/market
-mkdir -p data/raw/weekly-real/financial
-mkdir -p data/raw/weekly-real/dividend
-mkdir -p data/research
-mkdir -p .local/raw-checks
+xqatexp factor check --file .example-work/custom-factor.csv --research .example-work/research --strategy weekly_market_guard_rank_v1 --start 2026-08-31 --end 2026-09-04 --report .local/factor-check.json
+xqatexp daily target --config examples/config-custom-factor.toml --custom-factor .example-work/custom-factor.csv --decision-date 2026-09-04 --output .example-work/custom-target
 ```
 
-### 7.4 下载全市场基础和行情数据
-
-weekly 策略当前需要以下全市场事实：
-
-- `stock_basic`: A 股证券主数据；
-- `trade_calendar`: 交易日历；
-- `stock_daily`: A 股行情；
-- `stock_adj_factor`: A 股复权因子；
-- `stock_daily_basic`: 总市值，用于 `total_mv_pct_v1`；
-- `stock_suspend`: 全日停牌状态；
-- `stock_price_limit`: 涨跌停价格和执行约束；
-- `stock_st_status`: ST 状态；
-- `fund_basic`: ETF 主数据；
-- `fund_daily`: `510300.SH` ETF 行情；
-- `fund_adj_factor`: ETF 复权因子；
-- `index_daily`: `000300.SH` 回测基准。
-
-执行：
-
-```bash
-xqatexp data fetch \
-  --dataset stock_basic \
-  --start 2023-08-01 \
-  --end 2026-09-10 \
-  --output data/raw/weekly-real/market/stock-basic
-
-xqatexp data fetch \
-  --dataset trade_calendar \
-  --start 2023-08-01 \
-  --end 2026-09-10 \
-  --output data/raw/weekly-real/market/trade-calendar
-
-xqatexp data fetch \
-  --dataset stock_daily \
-  --start 2023-08-01 \
-  --end 2026-09-10 \
-  --output data/raw/weekly-real/market/stock-daily
-
-xqatexp data fetch \
-  --dataset stock_adj_factor \
-  --start 2023-08-01 \
-  --end 2026-09-10 \
-  --output data/raw/weekly-real/market/stock-adj-factor
-
-xqatexp data fetch \
-  --dataset stock_daily_basic \
-  --start 2023-08-01 \
-  --end 2026-09-10 \
-  --output data/raw/weekly-real/market/stock-daily-basic
-
-xqatexp data fetch \
-  --dataset stock_suspend \
-  --start 2023-08-01 \
-  --end 2026-09-10 \
-  --output data/raw/weekly-real/market/stock-suspend
-
-xqatexp data fetch \
-  --dataset stock_price_limit \
-  --start 2023-08-01 \
-  --end 2026-09-10 \
-  --output data/raw/weekly-real/market/stock-price-limit
-
-xqatexp data fetch \
-  --dataset stock_st_status \
-  --start 2023-08-01 \
-  --end 2026-09-10 \
-  --output data/raw/weekly-real/market/stock-st-status
-
-xqatexp data fetch \
-  --dataset fund_basic \
-  --start 2023-08-01 \
-  --end 2026-09-10 \
-  --output data/raw/weekly-real/market/fund-basic
-
-xqatexp data fetch \
-  --dataset fund_daily \
-  --security-id 510300.SH \
-  --start 2023-08-01 \
-  --end 2026-09-10 \
-  --output data/raw/weekly-real/market/fund-daily-510300
-
-xqatexp data fetch \
-  --dataset fund_adj_factor \
-  --security-id 510300.SH \
-  --start 2023-08-01 \
-  --end 2026-09-10 \
-  --output data/raw/weekly-real/market/fund-adj-factor-510300
-
-xqatexp data fetch \
-  --dataset index_daily \
-  --start 2023-08-01 \
-  --end 2026-09-10 \
-  --output data/raw/weekly-real/market/index-daily
-```
-
-不传 `--security-id` 的股票日频数据会按当前 CLI 的全市场查询方式抓取并分页，因此数据量会显著大于单证券 staged 回测。
-
-### 7.5 生成需要财务数据的证券列表
-
-当前 CLI 对 `income`、`fina_indicator` 和 `dividend` 要求显式 `--security-id`，所以全市场财务需要逐证券抓取。
-
-先从 `stock_basic` Raw Artifact 中提取与研究区间有交集的证券：
-
-```bash
-python - <<'PY'
-import gzip
-import json
-from datetime import date
-from pathlib import Path
-
-path = Path("data/raw/weekly-real/market/stock-basic/response.jsonl.gz")
-start = date.fromisoformat("2023-08-01")
-end = date.fromisoformat("2026-09-10")
-
-codes = set()
-with gzip.open(path, "rt", encoding="utf-8") as f:
-    for line in f:
-        row = json.loads(line)
-        listed = date(
-            int(row["list_date"][:4]),
-            int(row["list_date"][4:6]),
-            int(row["list_date"][6:8]),
-        )
-        delist_raw = row.get("delist_date")
-        delisted = None
-        if delist_raw:
-            delisted = date(
-                int(delist_raw[:4]),
-                int(delist_raw[4:6]),
-                int(delist_raw[6:8]),
-            )
-        if listed <= end and (delisted is None or delisted >= start):
-            codes.add(row["ts_code"])
-
-out = Path(".local/weekly-security-ids.txt")
-out.write_text("\n".join(sorted(codes)) + "\n", encoding="utf-8")
-print("security_count =", len(codes))
-print("written =", out)
-PY
-```
-
-### 7.6 逐证券下载财务数据
-
-为了生成：
-
-- `roe_annualized_v1`
-- `profit_positive_ttm_v1`
-- `consecutive_loss_2_v1`
-
-需要 `income` 和 `fina_indicator`。
-
-为保证 2024 年及之后的 TTM 推导有上一年度和同期数据，财务查询建议从 2022-01-01 开始：
-
-```bash
-while IFS= read -r code; do
-  mkdir -p "data/raw/weekly-real/financial/$code"
-
-  xqatexp data fetch \
-    --dataset income \
-    --security-id "$code" \
-    --start 2022-01-01 \
-    --end 2026-09-10 \
-    --output "data/raw/weekly-real/financial/$code/income"
-
-  xqatexp data fetch \
-    --dataset fina_indicator \
-    --security-id "$code" \
-    --start 2022-01-01 \
-    --end 2026-09-10 \
-    --output "data/raw/weekly-real/financial/$code/fina-indicator"
-done < .local/weekly-security-ids.txt
-```
-
-这是一个大批量真实数据任务。具体能否全部完成取决于 Tushare 权限、积分、接口限频和网络条件；失败的证券不要静默跳过，因为 weekly readiness 对财务和 factor coverage 有明确要求。
-
-### 7.7 可选但推荐：下载公司行为
-
-公司行为不是 weekly StrategyDeclaration 的入场 readiness 条件，但对实际 Backtest NAV、现金分红和送转股处理很重要。
-
-为了更接近真实持仓收益，建议同时抓：
-
-```bash
-while IFS= read -r code; do
-  mkdir -p "data/raw/weekly-real/dividend/$code"
-
-  xqatexp data fetch \
-    --dataset dividend \
-    --security-id "$code" \
-    --start 2023-08-01 \
-    --end 2026-09-10 \
-    --output "data/raw/weekly-real/dividend/$code/dividend"
-done < .local/weekly-security-ids.txt
-```
-
-如果省略这一步，策略仍可能通过 readiness，但回测账户不会拥有缺失的现金分红/送转股事实，因此不能把结果解释为完整公司行为口径的真实回测。
-
-### 7.8 校验所有 Raw Artifact
-
-可以递归检查已经下载的 Artifact：
-
-```bash
-find data/raw/weekly-real -name manifest.json -print0 |
-while IFS= read -r -d '' manifest; do
-  dir="${manifest%/manifest.json}"
-  key="$(printf '%s' "$dir" | tr '/.' '__')"
-  xqatexp data check-raw \
-    --input "$dir" \
-    --report ".local/raw-checks/${key}.json"
-done
-```
-
-任何 `RAW_CHECK valid=false` 都应先处理，再构建 Research Artifact。
-
-### 7.9 创建 Research Build 配置
-
-```bash
-cat > .local/weekly-research-build.toml <<'EOF'
-schema_version = "1.0"
-start_date = "2023-08-01"
-end_date = "2026-09-10"
-
-[strategy]
-csi300_etf_id = "510300.SH"
-EOF
-```
-
-### 7.10 构建 Research Artifact
-
-`data build` 当前要求把每一个 Raw Artifact 作为一个 `--raw-root` 显式传入。
-
-Linux Bash 可以动态组装参数：
-
-```bash
-RAW_ARGS=()
-
-while IFS= read -r -d '' manifest; do
-  RAW_ARGS+=(--raw-root "${manifest%/manifest.json}")
-done < <(find data/raw/weekly-real -name manifest.json -print0)
-
-xqatexp data build \
-  "${RAW_ARGS[@]}" \
-  --config .local/weekly-research-build.toml \
-  --output data/research/weekly-real-20230801-20260910
-```
-
-然后校验：
-
-```bash
-xqatexp data check-research \
-  --input data/research/weekly-real-20230801-20260910 \
-  --report .local/weekly-research-check.json
-```
-
-必须先看到：
-
-```text
-RESEARCH_CHECK valid=true
-```
-
-再进入策略回测。
-
-如果操作系统报 `Argument list too long`，说明 Raw Artifact 数量已经超过当前 CLI 的单次参数承载范围；当前版本没有递归 `--raw-root` 目录发现功能，这是现有真实全市场数据工作流的工程限制。
-
-### 7.11 创建真实 Backtest 配置
-
-```bash
-cat > .local/weekly-real-backtest.toml <<'EOF'
-schema_version = "1.0"
-mode = "BACKTEST"
-
-strategy_id = "weekly_market_guard_rank_v1"
-strategy_version = "1.0.0"
-
-research_artifact = "data/research/weekly-real-20230801-20260910"
-
-start_date = "2025-01-01"
-end_date = "2026-09-01"
-
-output = ".local/weekly-real-backtest-placeholder"
-
-[strategy]
-csi300_etf_id = "510300.SH"
-
-[execution]
-initial_cash = 1000000
-price_model = "NEXT_OPEN"
-slippage_bps = 10
-max_volume_participation = 0.10
-fee_schedule_id = "cn_cash_market_default_v1"
-dividend_tax_model = "PROVIDER_AFTER_TAX"
-EOF
-```
-
-未列出的 weekly strategy 参数使用第 3 节默认值。
-
-### 7.12 运行真实回测
-
-```bash
-xqatexp backtest run \
-  --config .local/weekly-real-backtest.toml \
-  --start-date 2025-01-01 \
-  --end-date 2026-09-01 \
-  --output .local/weekly-real-backtest-20250101-20260901
-```
-
-查看：
-
-```bash
-xqatexp result show \
-  --input .local/weekly-real-backtest-20250101-20260901 \
-  --format markdown
-```
-
-### 7.13 重点检查结果
-
-真实 weekly 回测建议重点查看：
-
-- `strategy_diagnostics.json`: 每周 market regime、theoretical drawdown、overlay、股票 rank/score；
-- `target_history.parquet`: 每次周决策的目标组合；
-- `trades.parquet`: NEXT_OPEN 模拟成交；
-- `unfilled.parquet`: 停牌、涨跌停、成交量或现金导致的未成交；
-- `portfolio_daily.parquet`: 每日 NAV 和资产暴露；
-- `metrics.json`: 收益、回撤、benchmark、费用等。
-
-如果回测在 readiness 阶段失败，应先检查财务、market status 和 system factor coverage，而不是直接调整策略参数。
-
-## 8. 主要输出与诊断
-
-Backtest 主要关注：
-
-- `target_history.parquet`
-- `portfolio_daily.parquet`
-- `trades.parquet`
-- `unfilled.parquet`
-- `metrics.json`
-- `strategy_diagnostics.json`
-- `report.md`
-
-`strategy_diagnostics.json` 中记录当前周的：
-
-- `market_regime`
-- `theoretical_drawdown`
-- `drawdown_overlay_level`
-- 每个最终股票的 rank、score、holding_age_weeks
-
-Daily Target 输出 TargetPortfolio，不代表真实订单；实际数量规划和成交由下游服务完成。
-
-## 9. 当前边界
-
-- 该策略不是 stateful execution strategy，不读取真实成交 state。
-- 持有周数来自 252 日内部理论重放，不是从券商成交历史恢复。
-- `single_stock_min_weight` 当前没有进入实际 allocation 算法。
-- `custom_factor_missing_policy` 当前没有改变 declaration；启用 custom factor 时实际 readiness 仍为 EXACT。
-- Backtest 成交使用共享执行层的 NEXT_OPEN 模型，不模拟集合竞价订单簿。
+全市场日频、VIP 财务、分红、ETF 和指数的获取及增量更新见
+[数据操作指南](../../../../../docs/data.md)。行情起点需早于首个决策至少 313 个交易日，
+财务历史需覆盖 TTM 派生。Research 构建成功后，策略运行仍会检查声明的数据覆盖。
+
+## 7. 结果与边界
+
+TargetPortfolio 只包含通用权重、transition、解释和 planning priority。
+`strategy_diagnostics.json` 保存市场状态、理论回撤、overlay、rank、score 和 holding age。
+理论组合按日价格漂移，周决策时按基础预算重置；overlay 控制最终目标，不改写理论组合重放。
+
+`--previous-target` 用于标注目标变化；真实账户由 `daily advise --account` 输入。
+账户完整性不足时，数量建议会降级为 unresolved，不能从目标权重推测真实持仓。
+参数 normalizer 不对所有阈值建立范围约束；自定义 direction 只有 `LOWER_BETTER` 触发反转，
+missing policy 在 declaration 中固定为 EXACT。配置应使用本文件列出的有效默认范围。
+
+## 8. 源码与测试
+
+参数见 [parameters.py](parameters.py)，依赖见 [declaration.py](declaration.py)，
+算法见 [strategy.py](strategy.py)、[scoring.py](scoring.py)、[market_regime.py](market_regime.py)
+和 [drawdown.py](drawdown.py)。单元测试位于
+`tests/unit/strategy/strategies/weekly_market_guard_rank_v1/`。

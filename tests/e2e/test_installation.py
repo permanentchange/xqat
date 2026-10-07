@@ -35,8 +35,11 @@ def test_readme_documents_every_public_command_and_secret_boundary() -> None:
         "self-check",
         "data capabilities",
         "data fetch",
+        "data fetch-batch",
+        "data collection index",
         "data check-raw",
         "data build",
+        "data update",
         "data check-research",
         "factor check",
         "backtest run",
@@ -64,4 +67,5 @@ def test_readme_is_linux_first_and_keeps_windows_powershell() -> None:
     assert "xqatexp self-check --offline" in readme
     assert "Linux 与 Windows 应分别创建自己的 Conda 环境" in readme
     assert "不共享同一个环境目录" in readme
-    assert "Ubuntu 22.04" in readme
+    assert "Linux 是主 CI 平台" in readme
+    assert "Windows 是兼容性 CI 平台" in readme

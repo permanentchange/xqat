@@ -1,4 +1,4 @@
-# 06 Artifact、Schema 与报告详细设计
+# Artifact、Schema 与报告
 
 ## 1. Artifact 通用模型
 
@@ -36,20 +36,22 @@ ERROR / SKIP / OVERWRITE 是唯一覆盖策略。
 
 当前 JSON Schema：
 
-- account_snapshot 1.x
-- artifact_manifest 1.x
-- failure_diagnostic 1.x
-- issues 1.x
-- metrics 1.x
-- raw_request 1.x
-- resolved_config 1.x
-- strategy_diagnostics 1.x
-- strategy_state 1.x
-- target_portfolio 2.x writer；reader 兼容 legacy 1.x
-- trade_intents 1.x
-- trade_advice 1.x
+- account_snapshot 1.0
+- artifact_manifest 1.0
+- failure_diagnostic 1.0
+- issues 1.0
+- metrics 1.0
+- raw_request 1.0
+- raw_collection 1.0
+- batch_result 1.0
+- resolved_config 1.0
+- strategy_diagnostics 1.0
+- strategy_state 1.0
+- target_portfolio 2.0 writer；reader 接受 1.0 和 2.0
+- trade_intents 1.0
+- trade_advice 1.0
 
-未知 major version 直接拒绝。
+未知 major version 直接拒绝，其他版本也需满足对应物理 Schema 的 schema_version 约束。
 
 ## 4. Arrow / CSV Schema
 
@@ -138,11 +140,11 @@ target_history 是通用 target schema；weekly 专属 rank/score/regime/drawdow
 
 trades 表保存 execution/decision/instruction provenance；unfilled 表保存请求、已成交/未成交数量、reason 和 evidence。
 
-## 9. Target schema 演进
+## 9. TargetPortfolio 读写合同
 
-当前 writer 只写 TargetPortfolio schema 2.0。2.0 已移除 weekly strategy 专属字段，并新增通用 planning priority。
-
-`reporting.readers.load_target` 仍能读取旧 1.x target，并将 legacy rank 映射到 planning priority；这是唯一保留的旧 target reader compatibility。新结果不再写 1.x。
+writer 生成 schema 2.0，仅包含通用 target 字段和可选 planning priority；策略诊断单独保存。
+reporting.readers.load_target 接受 1.0 / 2.0；读取 1.0 时将 rank 转换为 planning priority。
+这属于当前输入合同，writer 不生成 1.0。
 
 ## 10. Reporting
 
@@ -153,3 +155,16 @@ BacktestResultAssembler 负责把 BacktestResult 组装成 Arrow tables、metric
 ## 11. Failure Diagnostic
 
 Backtest 和 Daily 命令可用 `--failure-report` 发布独立 Failure Diagnostic。它记录 run id、mode、失败 stage、错误和脱敏 input references。失败产物与成功 Result 是不同 artifact type，不会混合。
+
+## 12. Raw Collection 与 Batch Report
+
+Collection 是目录型 Raw Artifact 的索引，索引/报告本身不带 Artifact Manifest。
+
+- collection.json：schema_version、complete、expected_partitions、entries；entry 包含 partition_id、generation、path、identity 和 manifest_sha256。
+- batch-result.json：run/mode/fingerprint、开始/结束时间、complete、任务状态/诊断、runtime 配置和 metrics。
+- artifacts/<partition>/<generation>：普通 Raw Artifact；每次刷新发布新目录。
+
+两个 JSON 按对应 Schema 校验，经临时文件、fsync 和 os.replace 原子写入；协调线程先写索引再写报告。
+同目录 OS 文件锁约束单写入者；读取验证相对路径、安全边界、哈希及预期覆盖。
+失败/缺口 Collection 不能展开为 Research 输入。注册与代次选择见
+[数据设计](02-data-and-research.md#4-raw-collection)。

@@ -1,4 +1,4 @@
-# 17 工程与运行基线
+# 工程与运行基线
 
 ## 1. 运行时
 
@@ -15,17 +15,18 @@ conda activate xqat
 
 项目是 setuptools `src/` 布局，console script 为 `xqatexp = xqatexp.cli:main`。wheel 同时包含顶层 `schemas/*.json`。
 
-## 2. 正式平台
+## 2. 平台目标
 
 项目采用 Linux 优先的双平台策略：
 
 - Linux x86_64：主平台和阻断性 CI 平台；
-- Windows 10/11 x64：正式兼容平台，CI 为 advisory；
+- Windows 10/11 x64：兼容性目标，CI 为 advisory；
 - Python：CPython 3.12。
 
-Linux 验收基线为 Ubuntu 22.04.5 LTS / WSL2（glibc 2.35）。项目文档的最低 Linux ABI 兼容目标为 glibc 2.28。
+CI 在 ubuntu-latest / windows-latest 上使用 CPython 3.12。wheel 为 py3-none-any；
+DuckDB、NumPy、PyArrow 等依赖包含各平台原生二进制，平台适用性还取决于锁定依赖可安装性。
 
-Linux 与 Windows 应分别创建自己的 Conda 环境，不共享环境目录。WSL 的正式 Linux 验证优先使用 WSL 原生 ext4 工作区。
+Linux 与 Windows 应分别创建自己的 Conda 环境，不共享环境目录。WSL 的 Linux 验证优先使用 WSL 原生 ext4 工作区。
 
 ## 3. 核心依赖
 
@@ -94,9 +95,10 @@ python -m pip install --require-hashes -r requirements-dev.lock
 推荐本地代码验证：
 
 ```bash
-python -m pytest -m "not live_tushare" -q
-python -m ruff check src tests
-python -m mypy src
+conda activate xqat
+python -m pytest -m "not live_tushare" --cov=xqatexp --cov-fail-under=80 -q
+python -m ruff check src/xqatexp tests
+python -m mypy src/xqatexp
 python -m xqatexp self-check --offline
 ```
 
@@ -107,3 +109,17 @@ Live Tushare 测试必须由用户显式设置 `TUSHARE_TOKEN` 并传 `--live-tu
 Canonical JSON 固定 key 排序与十进制表示；Raw gzip 固定 mtime；Parquet 表使用明确 schema、主键和排序规则。Artifact 使用 pathlib 和同目录 rename，不依赖 POSIX-only shell 命令。
 
 跨平台支持不意味着 Linux 与 Windows 共享同一个 Conda 环境或运行中的临时目录；只要求相同输入和配置在受支持平台遵守相同领域合同和 Artifact Schema。
+
+## 9. 数据运行与验证边界
+
+批量获取默认 4 workers（范围 1–8），与 ResearchSession 的 DuckDB threads 分别配置。
+全局预算包含分页、重试和 VIP 探测；provider-5000.toml 设置 420/min，限流不跨进程协调。
+Collection 使用 Linux fcntl / Windows msvcrt 单写入锁，索引和报告使用相对路径和同目录原子替换。
+
+本地测试覆盖日历假日、bootstrap/update 续跑、损坏补抓、孤立代次恢复、权限/分页失败、财务冲突、
+普通/VIP Research 等价、路径安全、单写入锁和 CLI 构建。普通 pytest 不访问真实 Tushare。
+网络、权限和性能验证需显式执行数据命令或 live 测试；用 batch report 的请求、限流、网络、
+退避、发布和总耗时衡量，不将模拟延迟或平台目标写成真实运行保证。
+
+独立文档检查包含 README、产品范围、架构、详细设计和两个策略 README 的链接及代码块。
+文档内容与当前代码、Schema、CLI 和测试同步维护。

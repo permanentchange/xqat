@@ -4,11 +4,13 @@ XQatExp 是一个本地运行的 A 股量化研究与决策工具。项目以版
 
 - 总体架构：[docs/architecture.md](docs/architecture.md)
 - 详细设计：[docs/detailed-design/README.md](docs/detailed-design/README.md)
+- 数据操作：[docs/data.md](docs/data.md)
+- 产品范围：[PRD.txt](PRD.txt)
 - 文档索引：[docs/README.md](docs/README.md)
 
 ## 1. 安装（Linux，首选）
 
-正式支持 Linux x86_64 和 Windows 10/11 x64；Linux 优先。Linux 验收基线是 Ubuntu 22.04.5 LTS，最低 Linux ABI 兼容目标为 glibc 2.28。运行时使用 Conda 创建独立 Python 3.12 环境：
+运行目标为 Linux x86_64 和 Windows 10/11 x64；Linux 是主 CI 平台，Windows 是兼容性 CI 平台。使用独立 CPython 3.12 环境：
 
 ```bash
 conda create -n xqat python=3.12 -y
@@ -52,13 +54,13 @@ xqatexp self-check --offline
 python -m pip install --require-hashes -r requirements-dev.lock
 ```
 
-Linux 与 Windows 应分别创建自己的 Conda 环境，不共享同一个环境目录。WSL 正式 Linux 验证建议使用 WSL 原生 ext4 工作区。
+Linux 与 Windows 应分别创建自己的 Conda 环境，不共享同一个环境目录。WSL 的 Linux 验证建议使用 WSL 原生 ext4 工作区。
 
 ## 3. 当前内置策略
 
 ### weekly_market_guard_rank_v1
 
-周频 allocation 策略。每周最后交易日收盘决策，输出通用 TargetPortfolio。策略使用 A 股系统因子、沪深300ETF regime、持仓 rank hysteresis 和理论组合回撤 overlay；可选接入单个用户 custom factor。详细逻辑、参数和运行方式见 [策略 README](src/xqatexp/strategy/strategies/weekly_market_guard_rank_v1/README.md)。
+周频 allocation 策略。回测按每周最后交易日收盘决策，输出通用 TargetPortfolio；手工 Daily 应选择相同日程。策略使用 A 股系统因子、沪深300ETF regime、持仓 rank hysteresis 和理论组合回撤 overlay；可选接入单个用户 custom factor。详细逻辑、参数和运行方式见 [策略 README](src/xqatexp/strategy/strategies/weekly_market_guard_rank_v1/README.md)。
 
 ### staged_drawdown_v1
 
@@ -116,7 +118,7 @@ xqatexp backtest run --config examples/config-offline.toml --start-date 2026-08-
 xqatexp result show --input .example-work/backtest --format markdown
 ```
 
-Windows PowerShell 使用相同命令语义，仅把路径分隔符换成 `\`。
+上述单行命令也可用于 Windows PowerShell，路径中的 `/` 可直接使用。
 
 ## 5. Stateful Daily 工作流
 
@@ -148,170 +150,54 @@ Daily Decision 不从历史 advice、target 或 AccountSnapshot 推测成交。�
 
 ## 6. Tushare 数据
 
-Token 只从当前进程的 `TUSHARE_TOKEN` 环境变量读取，不允许写入配置、源码或命令参数。
-
-Linux：
+Token 只从当前进程的 `TUSHARE_TOKEN` 环境变量读取。设置方式：
 
 ```bash
 export TUSHARE_TOKEN="<在本机填写你的 Token>"
-xqatexp data capabilities --output .local/tushare-capabilities.json
-xqatexp data fetch --dataset stock_daily --start 2026-08-01 --end 2026-08-31 --output data/raw/stock-daily-202608
-xqatexp data check-raw --input data/raw/stock-daily-202608 --report .local/raw-check.json
 ```
 
-Research 数据通过显式 Raw roots 构建或更新：
-
-```bash
-xqatexp data build --raw-root data/raw/stock-daily-202608 --config examples/config-offline.toml --output data/research/example
-xqatexp data check-research --input data/research/example --report .local/research-check.json
+```powershell
+$env:TUSHARE_TOKEN = "<在本机填写你的 Token>"
 ```
 
-实际 Research 构建通常需要策略所需的多类 Raw Artifact，而不是仅一份 stock_daily。
+批量获取、单次下载、配置字段和错误处理见 [数据操作指南](docs/data.md)。
 
-### 使用 2024–2026 真实数据回测 staged_drawdown_v1
+### 5000 积分：批量获取、断点续跑与 Collection
 
-下面以沪深300 ETF `510300.SH` 为例。数据覆盖 2024-01-01 至 2026-09-10，回测示例使用 2025-01-01 至 2026-09-01。较长的数据窗口用于提供策略 warmup 和最后一个决策日之后的下一交易日。
+建议使用 [Provider 配置](examples/provider-5000.toml)（420 次/分钟、4 workers）和
+[bootstrap plan](examples/fetch-bootstrap.toml)。Token 仍只从 `TUSHARE_TOKEN` 读取。
+一个进程共享连接池和限流器，分页、重试、权限探测都计入请求预算。`api_limits` 可为个别接口设置更低上限。
 
-先准备目录并确认 Token：
+Linux / Windows PowerShell 均执行下列单行命令：
 
 ```bash
 conda activate xqat
-export TUSHARE_TOKEN="<在本机填写你的 Token>"
-test -n "$TUSHARE_TOKEN" && echo "TUSHARE_TOKEN is set"
-
-mkdir -p data/raw/staged-510300
-mkdir -p data/research
-mkdir -p .local/raw-checks
+xqatexp data fetch-batch --plan examples/fetch-bootstrap.toml --provider-config examples/provider-5000.toml --output data/raw/collection --dry-run
+xqatexp data fetch-batch --plan examples/fetch-bootstrap.toml --provider-config examples/provider-5000.toml --output data/raw/collection
+xqatexp data build --raw-collection data/raw/collection --config examples/config-collection.toml --output data/research/weekly-collection
+xqatexp data check-research --input data/research/weekly-collection --report .local/weekly-collection-check.json
 ```
 
-下载交易日历、ETF 基本信息、ETF 日线、ETF 复权因子和沪深300指数：
+`--dry-run` 不联网、不要求 Token、不写文件。初次运行缺少交易日历时会报告未解析依赖；
+实际批次先获取 SSE 日历，再规划交易日分区。日频按交易日获取全市场数据，财务按季度末调用
+`income_vip` / `fina_indicator_vip`，映射到 `income` / `fina_indicator`。
+
+再次执行 bootstrap 会校验并跳过成功分区，补抓失败、缺失或损坏数据。批次输出
+`collection.json` 和 `batch-result.json`；未完成批次返回 5，不能用于 Research 构建。
+示例中的分红仍通过逐股票接口获取，因此可能占用较多时间。
+
+增量更新前延长 plan 的 `end` / `period_end`，并同步 Research config 的日期范围：
 
 ```bash
-xqatexp data fetch \
-  --dataset trade_calendar \
-  --start 2024-01-01 \
-  --end 2026-09-10 \
-  --output data/raw/staged-510300/trade-calendar
-
-xqatexp data fetch \
-  --dataset fund_basic \
-  --start 2024-01-01 \
-  --end 2026-09-10 \
-  --output data/raw/staged-510300/fund-basic
-
-xqatexp data fetch \
-  --dataset fund_daily \
-  --security-id 510300.SH \
-  --start 2024-01-01 \
-  --end 2026-09-10 \
-  --output data/raw/staged-510300/fund-daily
-
-xqatexp data fetch \
-  --dataset fund_adj_factor \
-  --security-id 510300.SH \
-  --start 2024-01-01 \
-  --end 2026-09-10 \
-  --output data/raw/staged-510300/fund-adj-factor
-
-xqatexp data fetch \
-  --dataset index_daily \
-  --start 2024-01-01 \
-  --end 2026-09-10 \
-  --output data/raw/staged-510300/index-daily
+xqatexp data fetch-batch --plan examples/fetch-bootstrap.toml --provider-config examples/provider-5000.toml --output data/raw/collection --mode update
+xqatexp data build --raw-collection data/raw/collection --config examples/config-collection.toml --output data/research/weekly-collection-next
 ```
 
-逐个校验 Raw Artifact：
+update 默认刷新最近 5 个交易日、8 个报告期，并补齐历史缺口。中断后用相同 plan 和 mode 续跑。
+Raw 获取按分区增量执行，Collection 构建 Research 时读取完整历史。运行策略时，为回看和
+下一交易日执行保留足够数据；周频策略至少需要 313 个交易日 warmup。
 
-```bash
-for name in trade-calendar fund-basic fund-daily fund-adj-factor index-daily; do
-  xqatexp data check-raw \
-    --input "data/raw/staged-510300/$name" \
-    --report ".local/raw-checks/$name.json"
-done
-```
-
-Research Build 使用单独配置：
-
-```bash
-cat > .local/staged-etf-research-build.toml <<'EOF'
-schema_version = "1.0"
-start_date = "2024-01-01"
-end_date = "2026-09-10"
-
-[strategy]
-csi300_etf_id = "510300.SH"
-EOF
-```
-
-构建并校验 Research Artifact：
-
-```bash
-xqatexp data build \
-  --raw-root data/raw/staged-510300/trade-calendar \
-  --raw-root data/raw/staged-510300/fund-basic \
-  --raw-root data/raw/staged-510300/fund-daily \
-  --raw-root data/raw/staged-510300/fund-adj-factor \
-  --raw-root data/raw/staged-510300/index-daily \
-  --config .local/staged-etf-research-build.toml \
-  --output data/research/staged-510300-20240101-20260910
-
-xqatexp data check-research \
-  --input data/research/staged-510300-20240101-20260910 \
-  --report .local/staged-etf-research-check.json
-```
-
-创建 Backtest 配置：
-
-```bash
-cat > .local/staged-etf-backtest.toml <<'EOF'
-schema_version = "1.0"
-mode = "BACKTEST"
-strategy_id = "staged_drawdown_v1"
-strategy_version = "1.0.0"
-research_artifact = "data/research/staged-510300-20240101-20260910"
-start_date = "2025-01-01"
-end_date = "2026-09-01"
-output = ".local/staged-etf-backtest-placeholder"
-
-[strategy]
-security_id = "510300.SH"
-lookback_trade_days = 20
-cumulative_decline_threshold = 0.10
-single_day_crash_threshold = 0.05
-minimum_down_days = 12
-add_buy_decline_threshold = 0.10
-buy_fraction = 0.10
-max_capital_fraction = 1.00
-take_profit_threshold = 0.10
-sell_fraction = 0.20
-
-[execution]
-initial_cash = 1000000
-price_model = "NEXT_OPEN"
-slippage_bps = 10
-max_volume_participation = 0.10
-fee_schedule_id = "cn_cash_market_default_v1"
-dividend_tax_model = "PROVIDER_AFTER_TAX"
-EOF
-```
-
-运行并查看结果：
-
-```bash
-xqatexp backtest run \
-  --config .local/staged-etf-backtest.toml \
-  --start-date 2025-01-01 \
-  --end-date 2026-09-01 \
-  --output .local/staged-510300-backtest-20250101-20260901
-
-xqatexp result show \
-  --input .local/staged-510300-backtest-20250101-20260901 \
-  --format markdown
-```
-
-若成交数为 0，先检查 `strategy_diagnostics.json` 中的 `lookback_cumulative_return`、`worst_daily_return`、`down_days` 和 `slow_decline`，判断是否从未满足首次建仓条件。
-
-更详细的策略逻辑、参数和真实数据回测说明见 [staged_drawdown_v1 README](src/xqatexp/strategy/strategies/staged_drawdown_v1/README.md)。
+单证券 ETF 数据准备与回测见 [数据操作指南](docs/data.md#单证券-etf-回测)。
 
 ## 7. 自定义因子
 
@@ -319,6 +205,7 @@ Custom factor CSV 固定列为 `factor_name,security_id,factor_date,factor_value
 
 ```bash
 xqatexp factor check --file .example-work/custom-factor.csv --research .example-work/research --strategy weekly_market_guard_rank_v1 --start 2026-08-31 --end 2026-09-04 --report .local/factor-check.json
+xqatexp daily target --config examples/config-custom-factor.toml --custom-factor .example-work/custom-factor.csv --decision-date 2026-09-04 --output .example-work/custom-target
 ```
 
 ## 8. 结果与账户建议
@@ -333,9 +220,10 @@ TradeAdvice 不是订单。账户事实缺失或不完整时，系统保留 unre
 ## 9. 开发校验
 
 ```bash
-python -m pytest -m "not live_tushare" -q
-python -m ruff check src tests
-python -m mypy src
+conda activate xqat
+python -m pytest -m "not live_tushare" --cov=xqatexp --cov-fail-under=80 -q
+python -m ruff check src/xqatexp tests
+python -m mypy src/xqatexp
 python -m xqatexp self-check --offline
 ```
 
@@ -350,4 +238,15 @@ CI 以 Linux 为主门禁，Windows 为兼容性 job；Ruff/Mypy 为 advisory，
 
 ## 10. 公共命令
 
-`self-check`、`data capabilities`、`data fetch`、`data check-raw`、`data build`、`data update`、`data check-research`、`factor check`、`backtest run`、`daily target`、`daily decide`、`daily advise`、`state init`、`state apply-fill`、`state apply-stock-adjustment`、`result show`。
+| 功能 | 命令 |
+| --- | --- |
+| 安装检查 | `self-check --offline` |
+| 获取数据 | `data capabilities`、`data fetch`、`data fetch-batch` |
+| 数据组织与构建 | `data collection index`、`data build`、`data update` |
+| 数据与因子检查 | `data check-raw`、`data check-research`、`factor check` |
+| 策略运行 | `backtest run`、`daily target`、`daily decide`、`daily advise` |
+| 确认状态 | `state init`、`state apply-fill`、`state apply-stock-adjustment` |
+| 结果读取 | `result show` |
+
+命令参数以 `xqatexp <command> --help` 为准；配置和退出码见
+[应用与 CLI](docs/detailed-design/03-application-and-cli.md)。

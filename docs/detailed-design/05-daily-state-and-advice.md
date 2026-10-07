@@ -1,4 +1,4 @@
-# 05 Daily、策略状态与建议详细设计
+# Daily、策略状态与建议
 
 ## 1. Daily Target
 
@@ -15,7 +15,7 @@
 7. 校验 target 权重、产品范围、单股上限和 next-trade-day effective date；
 8. 发布 DAILY_TARGET_RESULT。
 
-Target 是策略目标，不是订单。
+Target 是策略目标，不是订单。Daily Target 未单独执行 StrategySpec.schedule 检查；周频策略应由用户选择真实周末交易日。
 
 ## 2. Daily Decision
 
@@ -105,3 +105,13 @@ TradeAdvice 固定包含“仅供研究参考; 不是订单或投资承诺。”
 | `daily advise` | 已发布 target + 可选 AccountSnapshot | 研究参考数量建议 |
 
 Daily Advice 不适用于 TradeIntentDecision；stateful 策略通过 `daily decide` 直接表达意图，并由外部真实执行结果通过 state 命令回写。
+
+## 8. 数据准备与产物读取
+
+Daily 从显式 Research Artifact 读取数据并执行 readiness，不联网补抓。
+更新 Raw Collection 后先构建完整 Research，再修改运行配置中的 research_artifact 和 decision_date。
+批次更新、构建和覆盖检查见 [数据操作指南](../data.md)。
+
+三类 Daily Artifact 文件集合见 [Artifact 设计](06-artifacts-and-reporting.md#7-daily-result)。
+state 命令写新 JSON；Daily Decision 内的 strategy_state.json 是本次输入快照，
+stateful Backtest Result 内的同名文件则是模拟执行后的最终状态。

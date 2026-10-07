@@ -1,4 +1,4 @@
-# 03 应用层、配置与 CLI 详细设计
+# 应用层、配置与 CLI
 
 ## 1. CLI 命令树
 
@@ -7,6 +7,8 @@
 - `self-check --offline`
 - `data capabilities`
 - `data fetch`
+- `data fetch-batch`
+- `data collection index`
 - `data check-raw`
 - `data build`
 - `data update`
@@ -77,7 +79,7 @@ Result 中保存的是 resolved config，而不是未经校验的原始 TOML。
 
 ## 6. StrategyWorkflowService
 
-Application 层是 CLI 与领域服务之间的唯一用例编排入口。
+StrategyWorkflowService 编排策略运行；数据、因子和 state 命令由 CLI 调用各自服务。
 
 ### backtest
 
@@ -111,8 +113,41 @@ Artifact 命令的 `--existing` 支持 error / skip / overwrite。普通 state/c
 
 CLI 在解析前后都检查输入/输出路径图，拒绝相等、包含或被包含关系，避免输出破坏输入。
 
-## 9. 退出码与错误边界
+## 9. 数据配置与命令
 
-CLI 将配置/参数类错误映射为退出码 2，数据 readiness/安全类常见错误映射为 3，Artifact 发布错误为 4，provider 错误为 5，未处理异常只输出 correlation id 并返回 10。
+数据获取使用独立 ProviderConfig 和 BatchPlan，均不要求策略配置的 schema_version 字段。
+Provider 默认 200/min、4 workers、5 attempts、30 秒 timeout，可配置已注册 API 的独立预算。
+BatchPlan 配置交易日期、datasets、财务期、辅助请求和刷新窗口。字段及约束见
+[数据操作指南](../data.md)。
 
-Backtest/Daily 可通过 `--failure-report` 单独发布 Failure Diagnostic Artifact；失败诊断不伪装成成功 Result。
+| 命令 | 输入与行为 |
+| --- | --- |
+| data fetch | dataset/start/end/output；可指定单个 security-id、VIP api/period、provider-config、existing |
+| data fetch-batch | plan/output；可指定 provider-config、bootstrap/update mode、离线 dry-run |
+| data collection index | input 目录；校验并索引已存在 Raw |
+| data capabilities | output；可指定 trade-date 和 provider-config，探测普通注册接口 |
+| data build | raw-collection 或重复 raw-root，互斥；config/output/existing |
+| data update | base 和可选重复 raw-root；config/output/existing，不接受 raw-collection |
+| data check-raw / check-research | input/report；只读检查后写新报告 |
+
+Research build config 只消费 schema_version=1.0、start_date/end_date 和 strategy.csi300_etf_id。
+fetch-batch 不使用 Artifact existing 选项，成功分区通过身份/哈希验证续跑，刷新写新代次。
+Collection 完整性验证失败时拒绝 build。dry-run 不创建 Runtime、不读取 Token、不写目录。
+
+## 10. 退出码与错误边界
+
+| 退出码 | 当前用途 |
+| --- | --- |
+| 0 | 成功；无参数显示顶层 help |
+| 2 | argparse、输入输出路径、配置/参数，以及命令内部处理的普通 OSError/ValueError |
+| 3 | Raw/Research/factor 检查未通过、self-check 失败、SecurityError 或策略指定的 readiness 错误 |
+| 4 | Artifact 发布/输出已存在、日志写入或 result 读取失败 |
+| 5 | TushareError，或 fetch-batch 的 failed/interrupted/incomplete |
+| 10 | 未处理异常；仅输出 correlation id |
+
+data build 的 Collection 校验错误由数据命令映射到 2；是否是 provider 错误以实际异常类型为准。
+Backtest/Daily 的 DATA_REQUIRED_MISSING、DATA_COVERAGE_INSUFFICIENT、STRATEGY_WARMUP_INSUFFICIENT
+和 FACTOR_COVERAGE_INSUFFICIENT 返回 3；其余已捕获配置/数据错误返回 2。
+
+Backtest/Daily 可用 --failure-report 发布独立 Failure Diagnostic。
+未处理异常不会输出 provider 原文或完整 traceback；结构化日志通过全局 --log-file 写入。

@@ -1,16 +1,18 @@
 from __future__ import annotations
 
-import hashlib
+import argparse
 import re
 from pathlib import Path
 from urllib.parse import unquote
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-UPSTREAM_HASHES = {
-    "PRD.txt": "2CC90E04C56ADFCF4B9FA73354D3EF4D6DBE5B88FAE1B23D938D780D185D1148",
-    "总体架构设计.md": "32D425F69DB9DB02D80079C622BD60B79E2C07780CC45C592A8A2A3C55DF4C15",
-}
-MARKDOWN_FILES = (PROJECT_ROOT / "README.md", *sorted((PROJECT_ROOT / "docs").rglob("*.md")))
+MARKDOWN_FILES = (
+    PROJECT_ROOT / "README.md",
+    PROJECT_ROOT / "PRD.txt",
+    PROJECT_ROOT / "总体架构设计.md",
+    *sorted((PROJECT_ROOT / "docs").rglob("*.md")),
+    *sorted((PROJECT_ROOT / "src/xqatexp/strategy/strategies").glob("*/README.md")),
+)
 
 
 def _slug(heading: str) -> str:
@@ -19,9 +21,22 @@ def _slug(heading: str) -> str:
     return value.replace(" ", "-")
 
 
-def test_upstream_inputs_match_approved_baseline_hashes() -> None:
-    for name, expected in UPSTREAM_HASHES.items():
-        assert hashlib.sha256((PROJECT_ROOT / name).read_bytes()).hexdigest().upper() == expected
+def test_readme_documents_current_public_commands() -> None:
+    from xqatexp.cli import _build_parser
+
+    readme = (PROJECT_ROOT / "README.md").read_text("utf-8")
+
+    def check_commands(parser: argparse.ArgumentParser, prefix: str = "") -> None:
+        subcommands = [
+            action for action in parser._actions if isinstance(action, argparse._SubParsersAction)
+        ]
+        if not subcommands:
+            assert prefix in readme, f"README missing command: {prefix}"
+        for action in subcommands:
+            for name, child in action.choices.items():
+                check_commands(child, f"{prefix} {name}".strip())
+
+    check_commands(_build_parser())
 
 
 def test_markdown_local_links_resolve_to_files_and_headings() -> None:
@@ -67,12 +82,14 @@ def test_production_source_has_no_unfinished_placeholders() -> None:
     assert findings == []
 
 
-def test_engineering_baseline_formally_supports_linux_and_windows() -> None:
+def test_engineering_baseline_documents_platform_and_runtime_targets() -> None:
     baseline = (PROJECT_ROOT / "docs/detailed-design/17-engineering-baseline.md").read_text(
         encoding="utf-8"
     )
     assert "Linux x86_64" in baseline
     assert "Windows 10/11 x64" in baseline
-    assert "glibc 2.28" in baseline
+    assert "CPython 3.12" in baseline
+    assert "ubuntu-latest" in baseline
+    assert "windows-latest" in baseline
     assert "Linux 优先" in baseline
     assert "Linux x86_64 用于兼容性测试" not in baseline

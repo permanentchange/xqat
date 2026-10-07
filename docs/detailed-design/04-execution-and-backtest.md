@@ -1,4 +1,4 @@
-# 04 执行与回测详细设计
+# 执行与回测
 
 ## 1. Allocation 组合规划
 
@@ -54,11 +54,11 @@ ExecutionFacts 包含 asset type、open/high/low、涨跌停、volume、price ti
 
 默认 fee schedule id 为 `cn_cash_market_default_v1`。
 
-当前费率：
+默认 FeeModel 在最新生效段使用以下模拟费率：
 
 - A 股佣金 0.03%，最低 5 元；
-- 当前 A 股过户费 0.001%；
-- 当前 A 股卖出印花税 0.05%；
+- A 股过户费 0.001%；
+- A 股卖出印花税 0.05%；
 - ETF 佣金 0.03%，最低 5 元；无过户费和印花税。
 
 A 股历史费率按生效日切换，覆盖 2008-09-19、2022-04-29、2023-08-28 三个边界。费用最终按分量和总额以分为单位量化。
@@ -126,4 +126,14 @@ Dividend tax model：
 
 PerformanceAnalyzer 基于每日 NAV 计算 cumulative return、252 日年化收益、年化波动率、最大回撤及峰谷/恢复日期、Sharpe、Calmar。少于 60 个 return intervals 时标记 `SHORT_PERFORMANCE_SAMPLE`。
 
-BacktestReportAssembler 另外汇总 benchmark return、excess return、turnover、fees、slippage、仓位暴露、贡献和用户定义 analysis periods。报告层只组装已经产生的业务事实，不重新运行策略。
+BacktestResultAssembler 另外汇总 benchmark return、excess return、turnover、fees、slippage、仓位暴露、贡献和用户定义 analysis periods。报告层只组装已经产生的业务事实，不重新运行策略。
+
+## 10. 数据与结果入口
+
+回测只读取已经构建和验证的 Research，不执行 Tushare 下载。Collection update 后应先 build
+完整 Research，再通过显式 config/日期/输出运行 backtest。
+数据准备见 [操作指南](../data.md)，价格、状态和财务可见性见 [Research 设计](02-data-and-research.md)。
+
+NEXT_OPEN 是日线模拟模型，使用执行日已发生的 high/low、成交量和限制事实；不模拟实时下单或集合竞价队列。
+公司行为只使用输入表中已有事件，不检测未提供的分红。结果文件及 Schema 见
+[Artifact 设计](06-artifacts-and-reporting.md#8-backtest-result)。

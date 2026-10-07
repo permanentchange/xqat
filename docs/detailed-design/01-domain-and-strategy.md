@@ -1,4 +1,4 @@
-# 01 领域模型与策略详细设计
+# 领域模型与策略
 
 ## 1. 共享领域合同
 
@@ -48,8 +48,8 @@ Intent sizing 当前支持：
 共享策略框架固定留在 `src/xqatexp/strategy/` 根目录：
 
 - `registry.py`：全局 StrategySpec 注册与解析；
-- `decision.py`：StrategyDecision 和稳定 decision/intent identity；
-- `intents.py`：TradeIntentDecision 与 sizing 类型；
+- `decision.py`：稳定 decision/instruction/intent identity；
+- `intents.py`：StrategyDecision、TradeIntentDecision 与 sizing 类型；
 - `schedule.py`：Daily/Weekly decision schedule；
 - `state.py`：StrategyStateSnapshot/View/Reducer；
 - `state_io.py`、`state_tools.py`：state 序列化与 confirmed-event 维护。
@@ -93,100 +93,24 @@ strategies/
 
 新增 stateful 策略除上述内容外，还应声明 `CONFIRMED_EXECUTION_STATE`，并由 `strategy.py` 产生 TradeIntentDecision。除非需要新增通用能力，否则不应修改 BacktestEngine、IntentExecutor、ResearchSession、Account 或 Reporting。
 
-## 3. weekly_market_guard_rank_v1
+## 3. 内置策略
 
-### 3.1 调度与数据
+| 策略 | 版本 | Schedule | 决策 | 状态要求 |
+| --- | --- | --- | --- | --- |
+| weekly_market_guard_rank_v1 | 1.0.0 | WeeklyLastTradingDayCloseSchedule | AllocationDecision | NONE |
+| staged_drawdown_v1 | 1.0.0 | DailyCloseSchedule | TradeIntentDecision | CONFIRMED_EXECUTION_STATE |
 
-版本 `1.0.0`，周频，使用每周最后一个交易日收盘决策。声明 lookback 320 个交易日，正式重放使用最近 252 日，最低 warmup 313 个交易日。
+周频策略声明 320 日 lookback，要求至少 313 日 warmup，重放最近 252 日。
+它结合 ETF regime、股票系统因子、横截面评分、持仓滞回和滚动 60 日理论组合回撤产生目标权重。
+具体默认值、覆盖率、资格过滤、评分和 overlay 见
+[weekly 策略说明](../../src/xqatexp/strategy/strategies/weekly_market_guard_rank_v1/README.md)。
 
-主要 requirement：
+staged 策略按指定证券的 research_close 判断缓慢下跌，按 close_raw 和实际 confirmed state
+判断加仓与止盈；只产生 intent，不直接修改状态。Backtest 自动创建 reducer，Daily 必须提供 state。
+窗口、阈值、投入上限及信号优先级见
+[staged 策略说明](../../src/xqatexp/strategy/strategies/staged_drawdown_v1/README.md)。
 
-- trading days；
-- A 股 market status；
-- financial snapshot；
-- 10 个股票 system factors；
-- 5 个沪深300ETF system factors；
-- 可选 custom factor。
-
-### 3.2 主要股票因子
-
-股票系统因子包括市值百分位、20 日成交额百分位、60 日剔除最近 5 日动量、40 日动量、60 日趋势稳定度、20 日量价确认、20 日波动率、年化 ROE、TTM 盈利正值和连续亏损标志。
-
-默认评分权重：
-
-| 因子 | 权重 |
-| --- | ---: |
-| momentum_60_ex5 | 0.35 |
-| momentum_40 | 0.20 |
-| trend_stability_60 | 0.15 |
-| volume_price_confirm_20 | 0.10 |
-| low_volatility_20 | 0.10 |
-| profitability | 0.10 |
-
-Custom factor 可选，启用时权重必须在 (0, 0.20]。
-
-### 3.3 股票池与持有滞回
-
-默认 entry rank 20、exit rank 40、最短持有 2 周、最长持有 8 周、最低上市 252 个交易日；同时排除 ST、全日停牌、退市风险、数据冲突和关键因子缺失证券。
-
-持仓使用 rank hysteresis：新进入要求达到 entry rank；已有持仓在最短持有期内优先保留，之后可在 exit rank 内保留，超过最长持有期后需重新达到 entry rank。
-
-### 3.4 市场状态与资产预算
-
-MarketRegime 为 STRONG / NEUTRAL / WEAK。
-
-基础预算：
-
-| Regime | 股票预算 | ETF | 其余现金 |
-| --- | ---: | ---: | ---: |
-| STRONG | 75% | 15% | 剩余 |
-| NEUTRAL | 40% | 30% | 剩余 |
-| WEAK | 0% | 10% | 90% |
-
-单股默认最大权重 5%。滚动理论组合回撤通过 DrawdownOverlay 进一步降风险：默认 -8% 进入 CAUTION，-12% 进入 DEFENSIVE，回撤恢复到 -5% 并持续指定周数后恢复。DEFENSIVE 固定为 0% 股票、10% ETF、90% 现金。
-
-## 4. staged_drawdown_v1
-
-### 4.1 调度与依赖
-
-版本 `1.0.0`，日频，每个交易日收盘决策。只要求指定证券的 `research_close` 和 `close_raw` 以及足够交易日，不依赖财务数据或 system factors。
-
-策略声明 `CONFIRMED_EXECUTION_STATE`，因此 Backtest 自动创建 reducer，Daily 必须显式提供 state。
-
-### 4.2 默认参数
-
-| 参数 | 默认值 |
-| --- | ---: |
-| lookback_trade_days | 20 |
-| cumulative_decline_threshold | 10% |
-| single_day_crash_threshold | 5% |
-| minimum_down_days | 12 |
-| add_buy_decline_threshold | 10% |
-| buy_fraction | 初始资金 10% |
-| max_capital_fraction | 初始资金 100% |
-| take_profit_threshold | 10% |
-| sell_fraction | 当前持仓 20% |
-
-`security_id` 必须是 `000000.SH` 或 `000000.SZ` 形式。
-
-### 4.3 信号顺序
-
-1. 若已有持仓且按当前 raw close 计算的整体持仓收益率达到 take-profit threshold，产生 SELL intent，大小为当前持仓比例。
-2. 否则，若当前无持仓且 20 日满足缓慢下跌条件，产生首次 BUY intent。
-3. 否则，若已有持仓、上一次实际交易为 BUY、当前 raw close 相比 `last_buy_price` 再跌达到阈值，则产生追加 BUY intent。
-4. 其他情况无 intent。
-
-“缓慢下跌”使用复权后的 `research_close`：累计跌幅达到阈值、最差单日收益不低于负的 crash threshold、下跌日数达到 minimum_down_days。
-
-加仓和止盈使用 `close_raw`，从而与实际成交价保持同一价格口径。
-
-### 4.4 最大投入
-
-StrategyState 保存 `cumulative_buy_notional`。买入从空仓开始时重置本轮累计 gross notional；后续加仓不能超过 `initial_capital * max_capital_fraction`。不足一个标准 10% 档位时使用剩余额度的 FixedNotional。
-
-IntentExecutor 使用与撮合器一致的 modeled execution price 向下计算股数，再按买入手数向下取整，避免滑点使 gross notional 超过该 intent 的预算。
-
-## 5. StrategyState
+## 4. StrategyState
 
 StrategyPositionState 保存 quantity、remaining cost basis、last trade side/date/quantity/price、last buy price 和 cumulative buy notional。
 

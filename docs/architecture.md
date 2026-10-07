@@ -10,8 +10,11 @@ XQatExp 是一个本地优先、Artifact 驱动的 A 股量化研究与决策系
 
 ```mermaid
 flowchart LR
-    T[Tushare] --> R[Raw Artifact]
-    R --> B[ResearchBuilder]
+    T[Tushare] --> P0[Provider Runtime / BatchRunner]
+    P0 --> R[Raw Artifact]
+    R --> C[Raw Collection]
+    C --> B[ResearchBuilder]
+    R --> B
     B --> U[Research Artifact]
     U --> S[ResearchSession]
     S --> G[Strategy Registry]
@@ -35,7 +38,7 @@ flowchart LR
 | 层 | 主要包 | 当前职责 |
 | --- | --- | --- |
 | CLI / Application | `cli.py`, `application/` | 参数解析、配置解析、用例编排、退出码与失败诊断 |
-| Provider / Raw | `providers/tushare/` | Tushare 调用、能力探测、Raw 抓取与 Raw 校验 |
+| Provider / Raw | `providers/tushare/` | 共享 HTTP/限流、能力探测、Raw 抓取/校验、Batch 分区续跑、Collection 索引 |
 | Artifact | `artifacts/` | Canonical JSON、Manifest、Schema Registry、原子发布与校验读取 |
 | Research | `research/` | Raw→Research 转换、系统因子、受限查询、readiness、自定义因子 |
 | Domain | `domain/` | 不可变领域合同、枚举、Issue、数值规范 |
@@ -99,26 +102,22 @@ strategy/
 
 ### 4.6 Artifact 是运行边界
 
-Raw、Research、Backtest Result、Daily Result 和 Failure Diagnostic 都是自包含 Artifact。Artifact 在发布前完整校验，Manifest 记录文件 SHA-256；覆盖写使用 staging/backup/swap 恢复协议。
+Raw、Research、Backtest Result、Daily Result 和 Failure Diagnostic 都是自包含 Artifact。Collection 索引/报告以独立 Schema 校验，通过相对路径引用 Raw 代次。Artifact 在发布前完整校验，Manifest 记录文件 SHA-256；覆盖写使用 staging/backup/swap 恢复协议。
 
 ## 5. 主要运行路径
 
 ### 5.1 Raw → Research
 
-```mermaid
-sequenceDiagram
-    participant CLI
-    participant Provider as Tushare Provider
-    participant Raw as Raw Artifact
-    participant Builder as ResearchBuilder
-    participant Research as Research Artifact
-    CLI->>Provider: data fetch
-    Provider->>Raw: request.json + response.jsonl.gz + manifest
-    CLI->>Raw: data check-raw
-    CLI->>Builder: data build/update
-    Builder->>Research: 7 Parquet tables + manifest
-    CLI->>Research: data check-research
-```
+单次 fetch 与 fetch-batch 共用 RawFetchService。批次用共享 HTTP Client 和限流器，
+按真实交易日/报告期生成分区，发布不可变 Raw 代次，原子更新 Collection 索引和报告。
+财务 VIP 来源映射到普通接口对应的 canonical dataset。
+
+完整 Collection 或显式 Raw roots 进入 ResearchBuilder，生成七张 Parquet 表。
+Collection 的 Raw update 补洞、追加和刷新窗口；Research build 从完整历史重建。
+Research 的 data update 使用 base 与显式 Raw 合并，是单独路径。
+
+Raw Collection 是索引，不改变 Raw Artifact 的物理合同；失败批次不能构建。
+命令见 [数据操作指南](data.md)，内部职责见 [数据设计](detailed-design/02-data-and-research.md)。
 
 ### 5.2 Backtest
 
