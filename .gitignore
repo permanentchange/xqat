@@ -9,7 +9,9 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .coverage
+.coverage.*
 .coverage*.json
+coverage.xml
 .hypothesis/
 htmlcov/
 
@@ -23,6 +25,7 @@ dist/
 .example-work/
 .acceptance-*/
 .xqatexp-tmp/
+.xqatexp-tmp-*/
 data/
 
 # Local secrets and environment overrides
