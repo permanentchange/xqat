@@ -1,0 +1,22 @@
+schema_version = "1.0"
+# Relative paths resolve from the repository root, not the process working directory.
+input = "data/research/staged-etf"
+security_id = "510300.SH"
+development_start = "2013-01-01"
+development_end = "2023-12-31"
+holdout_start = "2024-01-01"
+workers = 16
+seed = 20261008
+
+[analysis]
+horizons = [1, 5, 10, 20, 60]
+joint_horizons = [5, 20, 60]
+quantile_window = 252
+bootstrap_samples = 2000
+bootstrap_min_block = 20
+bootstrap_horizon_multiplier = 2
+fdr_alpha = 0.05
+minimum_group_observations = 100
+minimum_nonoverlap_events = 20
+minimum_years = 3
+year_direction_fraction = 0.6666666666666666

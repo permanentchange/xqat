@@ -1,0 +1,5 @@
+# Install alongside the repository's requirements.lock; keep core versions fixed.
+numpy==2.5.2
+scipy>=1.14,<2
+statsmodels>=0.14,<0.16
+matplotlib>=3.9,<4
