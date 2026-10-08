@@ -111,20 +111,40 @@ def daily_advice_markdown(target: Mapping[str, object], advice: Mapping[str, obj
 
 
 def backtest_markdown(metrics: Mapping[str, object], trade_count: int) -> str:
-    return "\n".join(
+    lines = [
+        "# 回测结果",
+        "",
+        f"- 区间: {metrics['date_start']} 至 {metrics['date_end']}",
+        f"- 初始净值: {metrics['initial_nav']}",
+        f"- 最终净值: {metrics['final_nav']}",
+        f"- 相对基准收益差: {metrics['excess_return']}",
+        f"- 成交记录数: {trade_count}",
+        "",
+        "## 绩效对比",
+        "",
+        "| 指标 | 策略 | 沪深300基准 |",
+        "|---|---:|---:|",
+    ]
+    for label, key in (
+        ("累计收益", "cumulative_return"),
+        ("年化收益", "annualized_return"),
+        ("最大回撤", "max_drawdown"),
+        ("夏普率", "sharpe"),
+        ("Calmar (年化收益 / 最大回撤绝对值)", "calmar"),
+    ):
+        strategy_value = metrics.get(key)
+        benchmark_value = metrics.get(f"benchmark_{key}")
+        strategy_text = "不可计算" if strategy_value is None else str(strategy_value)
+        benchmark_text = "不可计算" if benchmark_value is None else str(benchmark_value)
+        lines.append(f"| {label} | {strategy_text} | {benchmark_text} |")
+    lines.extend(
         [
-            "# 回测结果",
             "",
-            f"- 区间: {metrics['date_start']} 至 {metrics['date_end']}",
-            f"- 初始净值: {metrics['initial_nav']}",
-            f"- 最终净值: {metrics['final_nav']}",
-            f"- 累计收益: {metrics['cumulative_return']}",
-            f"- 沪深300基准累计收益: {metrics['benchmark_cumulative_return']}",
-            f"- 相对基准收益差: {metrics['excess_return']}",
-            f"- 最大回撤: {metrics['max_drawdown']}",
-            f"- 成交记录数: {trade_count}",
+            "收益与回撤为小数比例, 最大回撤以负数表示。"
+            "年化按 252 个交易日计算, 夏普率使用年化无风险利率 0。",
             "",
             "本报告只格式化 metrics.json 与结构化交易事实, 不重新运行策略。",
             "",
         ]
     )
+    return "\n".join(lines)

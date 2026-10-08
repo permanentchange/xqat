@@ -191,11 +191,18 @@ class BacktestResultAssembler:
     def _metrics(self, result: BacktestResult) -> dict[str, object]:
         points = tuple((item.valuation_date, item.nav) for item in result.portfolio_daily)
         performance = PerformanceAnalyzer().analyze(points, risk_free_rate=Decimal("0"))
-        benchmark_values = tuple(
-            item.benchmark_nav for item in result.portfolio_daily if item.benchmark_nav is not None
+        benchmark_points = tuple(
+            (item.valuation_date, item.benchmark_nav)
+            for item in result.portfolio_daily
+            if item.benchmark_nav is not None
         )
-        benchmark_complete = len(benchmark_values) == len(result.portfolio_daily)
-        benchmark_return = benchmark_values[-1] - 1 if benchmark_complete else None
+        benchmark_complete = len(benchmark_points) == len(points)
+        benchmark_performance = (
+            PerformanceAnalyzer().analyze(benchmark_points, risk_free_rate=Decimal("0"))
+            if benchmark_complete
+            else None
+        )
+        benchmark_return = benchmark_points[-1][1] - 1 if benchmark_complete else None
         limitations = set(performance.limitations) | set(result.limitations)
         if not benchmark_complete:
             limitations.add("BENCHMARK_UNAVAILABLE")
@@ -214,6 +221,18 @@ class BacktestResultAssembler:
             "final_nav": points[-1][1],
             "cumulative_return": performance.cumulative_return,
             "benchmark_cumulative_return": benchmark_return,
+            "benchmark_annualized_return": (
+                None if benchmark_performance is None else benchmark_performance.annualized_return
+            ),
+            "benchmark_max_drawdown": (
+                None if benchmark_performance is None else benchmark_performance.max_drawdown
+            ),
+            "benchmark_sharpe": (
+                None if benchmark_performance is None else benchmark_performance.sharpe
+            ),
+            "benchmark_calmar": (
+                None if benchmark_performance is None else benchmark_performance.calmar
+            ),
             "excess_return": (
                 None
                 if benchmark_return is None
