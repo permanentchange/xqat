@@ -96,6 +96,13 @@ python examples/analyze_staged_drawdown.py --config examples/config-staged-etf.t
 
 趋势使用复权后的 `research_close`；加仓锚点和持仓收益使用 `close_raw`。决策在 D 日收盘后产生，当前执行模型为 D+1 NEXT_OPEN，不模拟 9:15–9:25 集合竞价订单簿。详细逻辑、参数和运行方式见 [策略 README](src/xqatexp/strategy/strategies/staged_drawdown_v1/README.md)。
 
+### 单只 ETF 量价研究项目
+
+独立的 P0 研究工具位于 [projects/etf_price_volume](projects/etf_price_volume/README.md)。
+使用现有 ETF Research 数据完成基本检查、14 个量价特征、条件收益、时序稳健统计检验和成交量增量分析。
+默认开发期为 2013–2023，2024 年起保留；结果保存到 `.local/`，不自动注册或启用交易策略。
+项目依赖、运行命令及后续研究顺序见项目 README。
+
 ### 策略源码组织
 
 共享策略框架位于 `src/xqatexp/strategy/`，只包含 Registry、Decision/Intent、Schedule 和 Strategy State 等通用机制。具体策略按 strategy id 放在独立目录中：
