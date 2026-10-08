@@ -1,5 +1,5 @@
 # Retain start when extending end; financial history includes TTM warmup.
-start = "2024-01-01"
+start = "2020-01-01"
 end = "2026-09-10"
 period_start = "2022-03-31"
 period_end = "2026-06-30"

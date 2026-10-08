@@ -3,7 +3,7 @@ mode = "BACKTEST"
 strategy_id = "weekly_market_guard_rank_v1"
 strategy_version = "1.0.0"
 research_artifact = "data/research/weekly-collection"
-start_date = "2024-01-01"
+start_date = "2020-01-01"
 end_date = "2026-09-10"
 output = ".local/weekly-collection-result"
 

@@ -154,11 +154,11 @@ xqatexp data build --raw-collection data/raw/imported --config examples/config-c
 staged_drawdown_v1 可以只准备交易日历、场内基金列表、目标 ETF 日线/复权因子及基准指数：
 
 ```bash
-xqatexp data fetch --dataset trade_calendar --start 2024-01-01 --end 2026-09-10 --provider-config examples/provider-5000.toml --output data/raw/staged-etf/trade-calendar
-xqatexp data fetch --dataset fund_basic --start 2024-01-01 --end 2026-09-10 --provider-config examples/provider-5000.toml --output data/raw/staged-etf/fund-basic
-xqatexp data fetch --dataset fund_daily --security-id 510300.SH --start 2024-01-01 --end 2026-09-10 --provider-config examples/provider-5000.toml --output data/raw/staged-etf/fund-daily
-xqatexp data fetch --dataset fund_adj_factor --security-id 510300.SH --start 2024-01-01 --end 2026-09-10 --provider-config examples/provider-5000.toml --output data/raw/staged-etf/fund-adj
-xqatexp data fetch --dataset index_daily --start 2024-01-01 --end 2026-09-10 --provider-config examples/provider-5000.toml --output data/raw/staged-etf/index-daily
+xqatexp data fetch --dataset trade_calendar --start 2020-01-01 --end 2026-09-10 --provider-config examples/provider-5000.toml --output data/raw/staged-etf/trade-calendar
+xqatexp data fetch --dataset fund_basic --start 2020-01-01 --end 2026-09-10 --provider-config examples/provider-5000.toml --output data/raw/staged-etf/fund-basic
+xqatexp data fetch --dataset fund_daily --security-id 510300.SH --start 2020-01-01 --end 2026-09-10 --provider-config examples/provider-5000.toml --output data/raw/staged-etf/fund-daily
+xqatexp data fetch --dataset fund_adj_factor --security-id 510300.SH --start 2020-01-01 --end 2026-09-10 --provider-config examples/provider-5000.toml --output data/raw/staged-etf/fund-adj
+xqatexp data fetch --dataset index_daily --start 2020-01-01 --end 2026-09-10 --provider-config examples/provider-5000.toml --output data/raw/staged-etf/index-daily
 xqatexp data collection index --input data/raw/staged-etf
 xqatexp data build --raw-collection data/raw/staged-etf --config examples/config-research-etf.toml --output data/research/staged-etf
 xqatexp data check-research --input data/research/staged-etf --report .local/staged-etf-check.json
@@ -167,7 +167,7 @@ xqatexp result show --input .local/staged-etf-backtest --format markdown
 ```
 
 [Research 配置](../examples/config-research-etf.toml) 和 [回测配置](../examples/config-staged-etf.toml)
-分别定义数据日期与回测日期。示例行情覆盖 2024-01-01 至 2026-09-10，回测为 2025-01-01 至 2026-09-01。
+分别定义数据日期与回测日期。示例行情覆盖 2020-01-01 至 2026-09-10，回测为 2025-01-01 至 2026-09-01。
 使用单行 CLI，不依赖 Bash 循环或 heredoc；Linux 与 Windows PowerShell 使用同一套流程。
 这条路径不获取 ETF 分红，公司行为表可能为空；回测不会自动发现缺失事件，也不会模拟其现金或持仓变化。
 
