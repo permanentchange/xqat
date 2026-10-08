@@ -74,6 +74,11 @@ Linux 与 Windows 应分别创建自己的 Conda 环境，不共享同一个环�
 - 当前持仓周期累计实际买入 gross notional 上限为初始资金 100%；
 - 整体持仓收益率达到 10% 时，卖出当前持仓 20%。
 
+未指定止盈模式时保持上述 repeat 规则。ETF 示例 `examples/config-staged-etf.toml` 显式启用
+tiered 分级止盈：盈利达到 10%、20%、30% 时，累计卖出首次止盈前持仓的约 30%、60%、100%。
+每档只补卖已确认成交后的差额；小持仓不足一个卖出单位时提前清仓，最高档全部退出。
+清仓后可按原建仓条件开始新周期。档位和比例可配置，详见策略 README。
+
 趋势使用复权后的 `research_close`；加仓锚点和持仓收益使用 `close_raw`。决策在 D 日收盘后产生，当前执行模型为 D+1 NEXT_OPEN，不模拟 9:15–9:25 集合竞价订单簿。详细逻辑、参数和运行方式见 [策略 README](src/xqatexp/strategy/strategies/staged_drawdown_v1/README.md)。
 
 ### 策略源码组织
@@ -107,7 +112,7 @@ src/xqatexp/strategy/
 
 ## 4. 完整离线示例
 
-以下命令假设已经 `conda activate xqat`：
+以下命令用于首次运行，假设已经 `conda activate xqat`：
 
 ```bash
 python examples/generate_offline_example.py --root .example-work
@@ -119,6 +124,24 @@ xqatexp result show --input .example-work/backtest --format markdown
 ```
 
 上述单行命令也可用于 Windows PowerShell，路径中的 `/` 可直接使用。
+
+回测报告对比策略与沪深300基准的累计收益、年化收益、最大回撤、夏普率和 Calmar。
+年化按 252 个交易日计算，夏普率使用年化无风险利率 0；Calmar 为年化收益除以
+最大回撤绝对值。收益与回撤使用小数比例，最大回撤为负数；无法计算的指标显示
+“不可计算”。基准任一估值日缺失时，基准指标不使用部分区间计算。
+`result show` 读取已发布报告；旧结果需重新运行 `backtest run` 才能生成新增指标。
+
+如果生成脚本报 `ARTIFACT_OUTPUT_EXISTS: research`，说明 `.example-work/research` 已存在。
+已有离线示例数据可直接复用，跳过生成步骤即可；需要重新生成时显式运行：
+
+```bash
+python examples/generate_offline_example.py --root .example-work --overwrite
+```
+
+`--overwrite` 会替换示例 Research 和 `custom-factor.csv`。重复运行 `daily target`、
+`daily advise` 或 `backtest run` 时，可使用新的 `--output` 路径，或添加
+`--existing overwrite` 重新生成结果。`data check-research` 的报告不支持该选项，
+重复检查时应给 `--report` 指定新的文件路径，例如 `.example-work/research-check-rerun.json`。
 
 ## 5. Stateful Daily 工作流
 

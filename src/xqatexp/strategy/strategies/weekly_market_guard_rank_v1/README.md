@@ -228,7 +228,9 @@ xqatexp backtest run --config examples/config-offline.toml --start-date 2026-08-
 xqatexp result show --input .example-work/backtest --format markdown
 ```
 
-输出使用新路径，或显式指定 Artifact 覆盖策略。自定义因子流程：
+如果 `.example-work/research` 已存在，可跳过生成步骤复用数据；重新生成时在脚本命令后添加
+`--overwrite`。结果输出使用新路径，或添加 `--existing overwrite`。检查报告使用新的文件路径。
+自定义因子流程：
 
 ```bash
 xqatexp factor check --file .example-work/custom-factor.csv --research .example-work/research --strategy weekly_market_guard_rank_v1 --start 2026-08-31 --end 2026-09-04 --report .local/factor-check.json
