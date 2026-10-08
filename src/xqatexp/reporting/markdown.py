@@ -130,7 +130,7 @@ def backtest_markdown(metrics: Mapping[str, object], trade_count: int) -> str:
         ("年化收益", "annualized_return"),
         ("最大回撤", "max_drawdown"),
         ("夏普率", "sharpe"),
-        ("Calmar (年化收益 / 最大回撤绝对值)", "calmar"),
+        ("收益回撤比", "calmar"),
     ):
         strategy_value = metrics.get(key)
         benchmark_value = metrics.get(f"benchmark_{key}")

@@ -63,7 +63,7 @@ def test_backtest_show_displays_published_comparison_without_recalculation(
         ("年化收益", "annualized_return"),
         ("最大回撤", "max_drawdown"),
         ("夏普率", "sharpe"),
-        ("Calmar (年化收益 / 最大回撤绝对值)", "calmar"),
+        ("收益回撤比", "calmar"),
     ):
         strategy = "不可计算" if metrics[key] is None else str(metrics[key])
         benchmark = metrics[f"benchmark_{key}"]
