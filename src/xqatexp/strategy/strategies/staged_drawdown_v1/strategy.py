@@ -2,22 +2,31 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 from typing import Any, cast
 
-from xqatexp.domain.contracts import CustomFactorView, ResearchDataView, StrategyDiagnostics
+from xqatexp.domain.contracts import (
+    CustomFactorView,
+    ResearchDataSlice,
+    ResearchDataView,
+    StrategyDiagnostics,
+)
 from xqatexp.domain.enums import OrderSide
 from xqatexp.strategy.decision import stable_decision_id, stable_intent_id
 from xqatexp.strategy.intents import (
     CurrentPositionFraction,
     FixedNotional,
+    FixedQuantity,
+    FullPosition,
     InitialCapitalFraction,
+    IntentSizing,
     TradeIntent,
     TradeIntentDecision,
 )
+from xqatexp.strategy.state import StrategyPositionState, StrategyStateView
+
 from .declaration import staged_drawdown_declaration
 from .parameters import StagedDrawdownParameters
-from xqatexp.strategy.state import StrategyStateView
 
 
 class StagedDrawdownStrategy:
@@ -37,9 +46,7 @@ class StagedDrawdownStrategy:
         values = self.parameters
         days = tuple(research.trading_days(research.earliest_date, research.decision_date))
         if len(days) < values.lookback_trade_days:
-            raise ValueError(
-                "STRATEGY_WARMUP_INSUFFICIENT: staged drawdown lookback is incomplete"
-            )
+            raise ValueError("STRATEGY_WARMUP_INSUFFICIENT: staged drawdown lookback is incomplete")
         recent = days[-values.lookback_trade_days :]
         view = research.slice(research.decision_date)
         rows = cast(
@@ -77,21 +84,29 @@ class StagedDrawdownStrategy:
         if quantity > 0:
             if position is None or position.remaining_cost_basis <= 0:
                 raise ValueError("STRATEGY_STATE_INVALID: positive position has no cost basis")
-            profit_rate = (
-                current_close * Decimal(quantity) / position.remaining_cost_basis - Decimal("1")
-            )
+            profit_rate = current_close * Decimal(
+                quantity
+            ) / position.remaining_cost_basis - Decimal("1")
 
         signal = "NONE"
-        sizing: InitialCapitalFraction | FixedNotional | CurrentPositionFraction | None = None
+        sizing: IntentSizing | None = None
         side: OrderSide | None = None
-        if (
-            quantity > 0
-            and profit_rate is not None
-            and profit_rate >= values.take_profit_threshold
+        tier_diagnostics: dict[str, object] = {}
+        sell_sizing: CurrentPositionFraction | FixedQuantity | FullPosition | None = None
+        if values.take_profit_mode == "tiered":
+            sell_sizing, tier_diagnostics = self._tiered_exit(view, position, profit_rate)
+        elif (
+            quantity > 0 and profit_rate is not None and profit_rate >= values.take_profit_threshold
         ):
-            signal = "TAKE_PROFIT"
+            sell_sizing = CurrentPositionFraction(values.sell_fraction)
+        if sell_sizing is not None:
+            signal = (
+                f"TAKE_PROFIT_TIER_{tier_diagnostics['eligible_profit_tier']}"
+                if values.take_profit_mode == "tiered"
+                else "TAKE_PROFIT"
+            )
             side = OrderSide.SELL
-            sizing = CurrentPositionFraction(values.sell_fraction)
+            sizing = sell_sizing
         elif quantity == 0 and slow_decline:
             signal = "INITIAL_ENTRY"
             side = OrderSide.BUY
@@ -142,6 +157,8 @@ class StagedDrawdownStrategy:
             {
                 "security_id": values.security_id,
                 "signal": signal,
+                "take_profit_mode": values.take_profit_mode,
+                **tier_diagnostics,
                 "current_raw_close": current_close,
                 "current_research_close": closes[-1],
                 "lookback_cumulative_return": cumulative_return,
@@ -165,6 +182,73 @@ class StagedDrawdownStrategy:
             intents,
             diagnostics,
         )
+
+    def _tiered_exit(
+        self,
+        view: ResearchDataSlice,
+        position: StrategyPositionState | None,
+        profit_rate: Decimal | None,
+    ) -> tuple[FixedQuantity | FullPosition | None, dict[str, object]]:
+        diagnostics: dict[str, object] = {
+            "eligible_profit_tier": 0,
+            "exit_base_quantity": None,
+            "exit_base_locked": False,
+            "exit_sold_quantity": Decimal("0"),
+            "tier_cumulative_target_quantity": 0,
+            "tier_remaining_quantity": 0,
+            "tier_full_exit": False,
+        }
+        if position is None or position.quantity == 0:
+            return None, diagnostics
+        if position.exit_base_quantity is None and position.last_trade_side is OrderSide.SELL:
+            raise ValueError(
+                "STRATEGY_STATE_INVALID: tiered exit history missing; replay confirmed fills"
+            )
+        base = position.exit_base_quantity or Decimal(position.quantity)
+        sold = position.exit_sold_quantity
+        diagnostics.update(
+            exit_base_quantity=base,
+            exit_base_locked=position.exit_base_quantity is not None,
+            exit_sold_quantity=sold,
+        )
+        rules = cast(
+            Sequence[Mapping[str, Any]],
+            view.security_rules((position.security_id,), ("sell_lot_size",)),
+        )
+        if len(rules) != 1:
+            raise ValueError("DATA_REQUIRED_MISSING: tiered sell lot size")
+        lot = rules[0].get("sell_lot_size")
+        if isinstance(lot, bool) or not isinstance(lot, int) or lot <= 0:
+            raise ValueError("DATA_REQUIRED_MISSING: invalid tiered sell lot size")
+        eligible = [
+            index
+            for index, threshold in enumerate(self.parameters.take_profit_levels)
+            if profit_rate is not None and profit_rate >= threshold
+        ]
+        if not eligible:
+            return None, diagnostics
+        tier = eligible[-1]
+        diagnostics["eligible_profit_tier"] = tier + 1
+        if tier == len(self.parameters.take_profit_levels) - 1:
+            diagnostics.update(
+                tier_cumulative_target_quantity=base,
+                tier_remaining_quantity=position.quantity,
+                tier_full_exit=True,
+            )
+            return FullPosition(), diagnostics
+
+        fraction = sum(self.parameters.take_profit_sell_fractions[: tier + 1])
+        target = int((base * fraction / lot).to_integral_value(rounding=ROUND_FLOOR)) * lot
+        remaining = Decimal(target) - sold
+        diagnostics["tier_cumulative_target_quantity"] = target
+        if remaining <= 0 and not (target == 0 and sold == 0):
+            return None, diagnostics
+        if remaining < lot:
+            diagnostics.update(tier_remaining_quantity=position.quantity, tier_full_exit=True)
+            return FullPosition(), diagnostics
+        quantity = int((remaining / lot).to_integral_value(rounding=ROUND_FLOOR)) * lot
+        diagnostics["tier_remaining_quantity"] = quantity
+        return FixedQuantity(quantity), diagnostics
 
     @staticmethod
     def _next_day(research: ResearchDataView, decision: date) -> date:

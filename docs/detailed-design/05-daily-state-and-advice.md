@@ -45,8 +45,15 @@ JSON schema version 当前为 1.0。顶层包含 strategy id/version、initial c
 - last_trade_price
 - last_buy_price
 - cumulative_buy_notional
+- exit_base_quantity / exit_sold_quantity（可选的减仓基准与累计已卖等价数量）
 
 State 不是券商账户的副本；它只保存策略决策需要、且能由 confirmed events 确定重放的状态。
+
+首次 confirmed SELL 锁定卖出前的数量基准；后续 SELL 累计实际卖出数量。
+BUY 和清仓重置减仓统计；送股/拆股按剩余数量比例调整等价数量，保留 12 位小数。
+旧 1.0 state 缺少这两个字段仍可读取。tiered 模式的正持仓若已发生 SELL 却缺少统计，
+必须重新初始化并重放确认成交与公司行为，不能根据建议补造止盈档位。
+未成交建议不会修改 state；`state apply-fill` 无需新增参数即可更新这些数量事实。
 
 ## 4. State 维护命令
 

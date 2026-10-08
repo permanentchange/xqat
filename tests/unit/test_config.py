@@ -280,7 +280,6 @@ def test_config_rejects_execution_modes_without_real_implementation(
         )
 
 
-
 def _write_staged_config(tmp_path: Path, security_id: str = "600000.SH") -> Path:
     research = tmp_path / "staged-research"
     research.mkdir()
@@ -321,6 +320,7 @@ def test_staged_drawdown_config_materializes_defaults_and_state_input(tmp_path: 
     assert context.parameters["cumulative_decline_threshold"] == Decimal("0.10")
     assert context.parameters["buy_fraction"] == Decimal("0.10")
     assert context.parameters["sell_fraction"] == Decimal("0.20")
+    assert context.parameters["take_profit_mode"] == "repeat"
     assert context.strategy_state_path == (tmp_path / "state.json").resolve()
 
 
@@ -333,3 +333,27 @@ def test_staged_drawdown_config_rejects_invalid_security_id(tmp_path: Path) -> N
             run_id="01991a6a-4c00-7000-8000-000000000005",
             generated_at=datetime(2026, 9, 6, tzinfo=UTC),
         )
+
+
+def test_staged_drawdown_config_resolves_tiered_arrays_without_repeat_parameters(
+    tmp_path: Path,
+) -> None:
+    config_path = _write_staged_config(tmp_path)
+    with config_path.open("a", encoding="utf-8") as file:
+        file.write('take_profit_mode = "tiered"\n')
+        file.write("take_profit_levels = [0.10, 0.20, 0.30]\n")
+        file.write("take_profit_sell_fractions = [0.30, 0.30, 0.40]\n")
+    context = _config().resolve_config(
+        {},
+        config_path,
+        run_id="01991a6a-4c00-7000-8000-000000000005",
+        generated_at=datetime(2026, 9, 6, tzinfo=UTC),
+    )
+    assert context.parameters["take_profit_mode"] == "tiered"
+    assert context.parameters["take_profit_levels"] == (
+        Decimal("0.10"),
+        Decimal("0.20"),
+        Decimal("0.30"),
+    )
+    assert "sell_fraction" not in context.parameters
+    assert "take_profit_threshold" not in context.parameters

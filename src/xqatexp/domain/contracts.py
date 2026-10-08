@@ -105,6 +105,8 @@ class ResearchDataSlice(Protocol):
 
     def universe(self) -> Sequence[SecuritySnapshot]: ...
 
+    def security_rules(self, security_ids: Sequence[str], fields: Sequence[str]) -> object: ...
+
     def history(
         self,
         security_ids: Sequence[str],

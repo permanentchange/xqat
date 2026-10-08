@@ -128,6 +128,10 @@ Session 关闭时删除自己的临时目录。
 
 ResearchDataView 绑定 decision date 和 declaration lookback。历史查询拒绝越过决策日期、越过声明范围或读取尚未 available 的数据。
 
+ResearchDataSlice.security_rules 按声明字段和 `SECURITY_RULES` 证券范围查询证券主表的
+buy_lot_size、sell_lot_size 或 price_tick；仅返回 `rule_effective_from <= as_of_date` 的规则。
+不依赖 security_status_daily；未知字段、未声明字段和范围外证券均被拒绝。
+
 Execution 查询与研究查询分离：`execution_rows` 为指定执行日提供 raw 开高低收、估值 close、停牌/涨跌停、lot size 和 price tick；`corporate_actions` 提供账户事件日期；`benchmark_close` 固定读取沪深300指数 `000300.SH`。
 
 ## 9. Readiness
@@ -135,6 +139,9 @@ Execution 查询与研究查询分离：`execution_rows` 为指定执行日提�
 ReadinessChecker 优先按 StrategyDeclaration.data_requirements 评估。TRADING_DAYS 用实际天数计算 coverage；其他 requirement 通过 ResearchDataView 的 requirement coverage 查询实际数据覆盖。
 
 required requirement 低于 minimum coverage 时，返回 declaration 指定的 failure code。Custom factor 在策略要求但未提供时 coverage 为 0。
+
+SECURITY_RULES 对指定证券检查生效日期和声明规则字段的正值覆盖，分级止盈要求当前日
+sell_lot_size 覆盖率 100%。
 
 ## 10. 自定义因子
 

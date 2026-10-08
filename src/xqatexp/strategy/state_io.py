@@ -31,6 +31,8 @@ def strategy_state_value(state: StrategyStateSnapshot) -> dict[str, object]:
                 "last_trade_price": item.last_trade_price,
                 "last_buy_price": item.last_buy_price,
                 "cumulative_buy_notional": item.cumulative_buy_notional,
+                "exit_base_quantity": item.exit_base_quantity,
+                "exit_sold_quantity": item.exit_sold_quantity,
             }
             for item in state.positions
         ],
@@ -52,7 +54,9 @@ def load_strategy_state(path: Path) -> StrategyStateSnapshot:
                 None if item["last_trade_side"] is None else OrderSide(str(item["last_trade_side"]))
             ),
             last_trade_date=(
-                None if item["last_trade_date"] is None else date.fromisoformat(item["last_trade_date"])
+                None
+                if item["last_trade_date"] is None
+                else date.fromisoformat(item["last_trade_date"])
             ),
             last_trade_quantity=int(item["last_trade_quantity"]),
             last_trade_price=(
@@ -62,6 +66,12 @@ def load_strategy_state(path: Path) -> StrategyStateSnapshot:
                 None if item["last_buy_price"] is None else Decimal(str(item["last_buy_price"]))
             ),
             cumulative_buy_notional=Decimal(str(item["cumulative_buy_notional"])),
+            exit_base_quantity=(
+                None
+                if item.get("exit_base_quantity") is None
+                else Decimal(str(item["exit_base_quantity"]))
+            ),
+            exit_sold_quantity=Decimal(str(item.get("exit_sold_quantity", "0"))),
         )
         for item in value["positions"]
     )

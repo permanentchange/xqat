@@ -50,7 +50,7 @@ def test_builtin_strategies_have_isolated_source_and_unit_test_packages() -> Non
                 "declaration.py",
                 "strategy.py",
             },
-            "tests": {"test_staged_drawdown.py"},
+            "tests": {"test_staged_drawdown.py", "test_tiered_take_profit.py"},
         },
     }
     for strategy_id, layout in expected.items():

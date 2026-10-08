@@ -4,16 +4,21 @@ from decimal import Decimal
 from xqatexp.backtest.engine import BacktestEngine
 from xqatexp.domain.enums import OrderSide
 from xqatexp.strategy.schedule import DailyCloseSchedule
+from xqatexp.strategy.state import StrategyStateReducer
 from xqatexp.strategy.strategies.staged_drawdown_v1.strategy import (
     StagedDrawdownStrategy,
 )
-from xqatexp.strategy.state import StrategyStateReducer
 
 
 class _Slice:
     def __init__(self, days, closes):
         self._days = days
         self._closes = closes
+
+    def security_rules(self, security_ids, fields):
+        assert security_ids == ("600000.SH",)
+        assert fields == ("sell_lot_size",)
+        return ({"security_id": "600000.SH", "sell_lot_size": 100},)
 
     def history(self, security_ids, fields, start, end):
         assert security_ids == ("600000.SH",)
@@ -52,8 +57,7 @@ class _Data:
         start = date(2026, 8, 1)
         self.days = tuple(start + timedelta(days=index) for index in range(24))
         self.closes = {
-            day: Decimal("10") - Decimal("0.06") * index
-            for index, day in enumerate(self.days[:20])
+            day: Decimal("10") - Decimal("0.06") * index for index, day in enumerate(self.days[:20])
         }
         self.closes[self.days[20]] = Decimal("7.80")
         self.closes[self.days[21]] = Decimal("11.00")
@@ -133,3 +137,69 @@ def test_staged_drawdown_backtest_uses_confirmed_fill_state_across_decisions() -
     assert position.last_trade_side is OrderSide.SELL
     assert position.last_buy_price == Decimal("7.80")
     assert position.cumulative_buy_notional == Decimal("19040.00")
+
+
+def test_tiered_backtest_exits_once_and_clears_cycle() -> None:
+    data = _Data()
+    strategy = StagedDrawdownStrategy({"security_id": "600000.SH", "take_profit_mode": "tiered"})
+    result = BacktestEngine().run(
+        data=data,
+        strategy=strategy,
+        parameters=strategy.parameters.as_mapping(),
+        custom=None,
+        start_date=data.days[19],
+        end_date=data.days[22],
+        initial_cash=Decimal("100000"),
+        execution_assumptions={
+            "slippage_bps": Decimal("0"),
+            "max_volume_participation": Decimal("0.10"),
+        },
+        schedule=DailyCloseSchedule(),
+        state_reducer=StrategyStateReducer("staged_drawdown_v1", "1.0.0"),
+    )
+    # Both buys confirm before the jump through all three profit tiers.
+    assert [item.filled_quantity for item in result.trades] == [1100, 1200, 2300]
+    assert result.decisions[-1].intents == ()
+    assert result.strategy_state.positions[0].quantity == 0
+    assert result.strategy_state.positions[0].exit_base_quantity is None
+
+
+def test_tiered_backtest_retries_volume_limited_fill_without_reselling_completed_tier() -> None:
+    data = _Data()
+    next_day = data.days[-1] + timedelta(days=1)
+    data.days += (next_day,)
+    data.closes[next_day] = Decimal("9.30")
+    data.closes[data.days[21]] = Decimal("9.30")
+    data.closes[data.days[22]] = Decimal("9.30")
+    data.closes[data.days[23]] = Decimal("9.30")
+    data.opens[data.days[22]] = Decimal("9.30")
+    data.opens[data.days[23]] = Decimal("9.30")
+    original_rows = data.execution_rows
+
+    def limited_rows(execution_date, security_ids):
+        rows = original_rows(execution_date, security_ids)
+        if execution_date == data.days[22]:
+            return tuple({**row, "volume_shares": 3000} for row in rows)
+        return rows
+
+    data.execution_rows = limited_rows
+    strategy = StagedDrawdownStrategy({"security_id": "600000.SH", "take_profit_mode": "tiered"})
+    result = BacktestEngine().run(
+        data=data,
+        strategy=strategy,
+        parameters=strategy.parameters.as_mapping(),
+        custom=None,
+        start_date=data.days[19],
+        end_date=data.days[23],
+        initial_cash=Decimal("100000"),
+        execution_assumptions={
+            "slippage_bps": Decimal("0"),
+            "max_volume_participation": Decimal("0.10"),
+        },
+        schedule=DailyCloseSchedule(),
+        state_reducer=StrategyStateReducer("staged_drawdown_v1", "1.0.0"),
+    )
+    assert [item.filled_quantity for item in result.trades] == [1100, 1200, 300, 300]
+    assert result.decisions[-1].intents == ()
+    assert result.strategy_state.positions[0].exit_base_quantity == 2300
+    assert result.strategy_state.positions[0].exit_sold_quantity == 600

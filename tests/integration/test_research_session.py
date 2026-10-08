@@ -156,3 +156,55 @@ def test_context_preserves_business_error_when_connection_close_also_fails(
         raise ValueError("business failure")
     assert session.closed
     assert not temporary.exists()
+
+
+def test_security_rules_are_declared_scoped_visible_and_checked_for_readiness(
+    tmp_path: Path,
+) -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from tests.integration.test_research_build import (
+        test_research_build_normalizes_units_prices_and_all_table_schemas,
+    )
+    from xqatexp.strategy.strategies.staged_drawdown_v1.declaration import (
+        staged_drawdown_declaration,
+    )
+
+    test_research_build_normalizes_units_prices_and_all_table_schemas(tmp_path)
+    decision = date(2026, 9, 4)
+    declaration = staged_drawdown_declaration(
+        {
+            "security_id": "600000.SH",
+            "take_profit_mode": "tiered",
+        }
+    )
+    requirement = declaration.data_requirements[-1]
+    with ResearchSession(tmp_path / "research", declaration) as session:
+        view = session.view(decision)
+        snapshot = view.slice(decision)
+        assert snapshot.security_rules(("600000.SH",), ("sell_lot_size",)) == (
+            {"security_id": "600000.SH", "sell_lot_size": 100},
+        )
+        assert snapshot.security_rules((), ("sell_lot_size",)) == ()
+        assert view.requirement_coverage(requirement, None) == 1
+        with pytest.raises(ResearchAccessError, match="UNDECLARED"):
+            snapshot.security_rules(("600000.SH",), ("buy_lot_size",))
+        with pytest.raises(ResearchAccessError, match="security scope"):
+            snapshot.security_rules(("600001.SH",), ("sell_lot_size",))
+        table = pq.read_table(tmp_path / "research/tables/security_master.parquet")
+        index = table.schema.get_field_index("rule_effective_from")
+        future = table.set_column(
+            index,
+            table.schema.field(index),
+            pa.array(
+                [decision + timedelta(days=1)] * table.num_rows,
+                type=pa.date32(),
+            ),
+        )
+        session._connection.register("future_master", future)
+        session._connection.execute(
+            "CREATE OR REPLACE VIEW security_master AS SELECT * FROM future_master"
+        )
+        assert snapshot.security_rules(("600000.SH",), ("sell_lot_size",)) == ()
+        assert view.requirement_coverage(requirement, None) == 0

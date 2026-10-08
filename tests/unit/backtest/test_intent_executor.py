@@ -1,11 +1,14 @@
 from datetime import date
 from decimal import Decimal
 
+import pytest
+
 from xqatexp.backtest.account import SimulatedAccount
 from xqatexp.backtest.intent_executor import IntentExecutor
 from xqatexp.domain.enums import OrderSide
 from xqatexp.strategy.intents import (
     CurrentPositionFraction,
+    FixedQuantity,
     InitialCapitalFraction,
     TradeIntent,
     TradeIntentDecision,
@@ -109,7 +112,6 @@ def test_intent_executor_sizes_buy_from_initial_capital_and_sell_from_current_po
     assert account.positions["600000.SH"] == 800
 
 
-
 def test_buy_intent_budget_uses_modeled_slippage_price() -> None:
     account = SimulatedAccount(Decimal("100000"))
     decision = TradeIntentDecision(
@@ -143,3 +145,29 @@ def test_buy_intent_budget_uses_modeled_slippage_price() -> None:
     assert trade.execution_price == Decimal("10.10")
     assert trade.filled_quantity == 900
     assert trade.gross_amount <= Decimal("10000")
+
+
+@pytest.mark.parametrize(("requested", "expected"), [(150, 100), (450, 450), (1000, 450)])
+def test_fixed_quantity_respects_sell_lot_and_allows_full_odd_lot_exit(requested, expected) -> None:
+    account = SimulatedAccount(Decimal("100000"))
+    account.positions["600000.SH"] = 450
+    account.sellable_quantities["600000.SH"] = 450
+    decision = TradeIntentDecision(
+        "fixed-sell",
+        "staged",
+        "1.0.0",
+        date(2026, 9, 7),
+        date(2026, 9, 8),
+        (TradeIntent("fixed", "600000.SH", OrderSide.SELL, FixedQuantity(requested), ("TEST",)),),
+    )
+    result = IntentExecutor().execute(
+        data=_Data(),
+        account=account,
+        decision=decision,
+        state=_state(),
+        execution_date=date(2026, 9, 8),
+        slippage=Decimal("0"),
+        participation=Decimal("0.10"),
+    )
+    assert result.trades[0][0].filled_quantity == expected
+    assert account.positions["600000.SH"] == 450 - expected

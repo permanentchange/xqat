@@ -22,6 +22,10 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
+        "dependentRequired": {
+          "exit_base_quantity": ["exit_sold_quantity"],
+          "exit_sold_quantity": ["exit_base_quantity"]
+        },
         "required": [
           "security_id",
           "quantity",
@@ -42,7 +46,9 @@
           "last_trade_quantity": { "type": "integer", "minimum": 0 },
           "last_trade_price": { "type": ["number", "null"], "exclusiveMinimum": 0 },
           "last_buy_price": { "type": ["number", "null"], "exclusiveMinimum": 0 },
-          "cumulative_buy_notional": { "type": "number", "minimum": 0 }
+          "cumulative_buy_notional": { "type": "number", "minimum": 0 },
+          "exit_base_quantity": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+          "exit_sold_quantity": { "type": "number", "minimum": 0 }
         }
       }
     }

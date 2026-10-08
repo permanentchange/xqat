@@ -26,6 +26,21 @@ class StrategyPositionState:
     last_trade_price: Decimal | None = None
     last_buy_price: Decimal | None = None
     cumulative_buy_notional: Decimal = Decimal("0")
+    exit_base_quantity: Decimal | None = None
+    exit_sold_quantity: Decimal = Decimal("0")
+
+    def __post_init__(self) -> None:
+        if not self.exit_sold_quantity.is_finite() or self.exit_sold_quantity < 0:
+            raise ValueError("STRATEGY_STATE_INVALID: invalid exit sold quantity")
+        if self.exit_base_quantity is None:
+            if self.exit_sold_quantity != 0:
+                raise ValueError("STRATEGY_STATE_INVALID: exit sold quantity without base")
+        elif (
+            not self.exit_base_quantity.is_finite()
+            or self.exit_base_quantity <= 0
+            or self.exit_base_quantity - self.exit_sold_quantity != self.quantity
+        ):
+            raise ValueError("STRATEGY_STATE_INVALID: exit quantities do not match position")
 
     @property
     def average_cost(self) -> Decimal | None:
@@ -143,6 +158,8 @@ class StrategyStateReducer:
                 last_trade_quantity=record.filled_quantity,
                 last_trade_price=record.execution_price,
                 last_buy_price=record.execution_price,
+                exit_base_quantity=None,
+                exit_sold_quantity=Decimal("0"),
                 cumulative_buy_notional=(
                     record.gross_amount
                     if current.quantity == 0
@@ -164,6 +181,16 @@ class StrategyStateReducer:
                 else current.remaining_cost_basis
                 - basis_per_share * Decimal(record.filled_quantity)
             )
+            exit_base = current.exit_base_quantity
+            if exit_base is None and current.last_trade_side is not OrderSide.SELL:
+                exit_base = Decimal(current.quantity)
+            exit_sold = (
+                current.exit_sold_quantity + record.filled_quantity
+                if exit_base is not None
+                else Decimal("0")
+            )
+            if next_quantity == 0:
+                exit_base, exit_sold = None, Decimal("0")
             next_state = replace(
                 current,
                 quantity=next_quantity,
@@ -172,6 +199,8 @@ class StrategyStateReducer:
                 last_trade_date=record.execution_date,
                 last_trade_quantity=record.filled_quantity,
                 last_trade_price=record.execution_price,
+                exit_base_quantity=exit_base,
+                exit_sold_quantity=exit_sold,
             )
 
         positions[record.security_id] = next_state
@@ -193,20 +222,24 @@ class StrategyStateReducer:
         current = positions.get(security_id) or StrategyPositionState(security_id)
         next_quantity = current.quantity + quantity
         adjusted_last_buy_price = current.last_buy_price
-        if (
-            adjusted_last_buy_price is not None
-            and current.quantity > 0
-            and next_quantity > 0
-        ):
+        exit_base = current.exit_base_quantity
+        exit_sold = current.exit_sold_quantity
+        if exit_base is not None and current.quantity > 0:
+            # Fractional historical quantities are corporate-action equivalents, not fills.
+            exit_sold = (exit_sold * Decimal(next_quantity) / Decimal(current.quantity)).quantize(
+                Decimal("0.000000000001")
+            )
+            exit_base = Decimal(next_quantity) + exit_sold
+        if adjusted_last_buy_price is not None and current.quantity > 0 and next_quantity > 0:
             adjusted_last_buy_price = (
-                adjusted_last_buy_price
-                * Decimal(current.quantity)
-                / Decimal(next_quantity)
+                adjusted_last_buy_price * Decimal(current.quantity) / Decimal(next_quantity)
             )
         positions[security_id] = replace(
             current,
             quantity=next_quantity,
             last_buy_price=adjusted_last_buy_price,
+            exit_base_quantity=exit_base,
+            exit_sold_quantity=exit_sold,
         )
         return replace(state, positions=self._sorted_positions(positions))
 

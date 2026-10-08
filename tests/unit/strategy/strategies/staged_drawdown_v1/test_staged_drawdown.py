@@ -3,23 +3,29 @@ from decimal import Decimal
 
 from xqatexp.domain.enums import OrderSide, StateRequirement
 from xqatexp.strategy.intents import CurrentPositionFraction, InitialCapitalFraction
+from xqatexp.strategy.state import (
+    StrategyPositionState,
+    StrategyStateSnapshot,
+    StrategyStateView,
+)
 from xqatexp.strategy.strategies.staged_drawdown_v1.declaration import (
     staged_drawdown_declaration,
 )
 from xqatexp.strategy.strategies.staged_drawdown_v1.strategy import (
     StagedDrawdownStrategy,
 )
-from xqatexp.strategy.state import (
-    StrategyPositionState,
-    StrategyStateSnapshot,
-    StrategyStateView,
-)
 
 
 class _Slice:
-    def __init__(self, days, closes):
+    def __init__(self, days, closes, sell_lot=100):
         self._days = days
         self._closes = closes
+        self._sell_lot = sell_lot
+
+    def security_rules(self, security_ids, fields):
+        assert security_ids == ("600000.SH",)
+        assert fields == ("sell_lot_size",)
+        return ({"security_id": "600000.SH", "sell_lot_size": self._sell_lot},)
 
     def history(self, security_ids, fields, start, end):
         assert security_ids == ("600000.SH",)
@@ -37,9 +43,10 @@ class _Slice:
 
 
 class _Research:
-    def __init__(self, closes):
-        self._days = tuple(date(2026, 8, 1) + timedelta(days=index) for index in range(len(closes)))
+    def __init__(self, closes, sell_lot=100, start=date(2026, 8, 1)):
+        self._days = tuple(start + timedelta(days=index) for index in range(len(closes)))
         self._closes = tuple(Decimal(str(value)) for value in closes)
+        self._sell_lot = sell_lot
         self.earliest_date = self._days[0]
         self.decision_date = self._days[-1]
 
@@ -48,7 +55,7 @@ class _Research:
 
     def slice(self, as_of_date):
         assert as_of_date == self.decision_date
-        return _Slice(self._days, self._closes)
+        return _Slice(self._days, self._closes, self._sell_lot)
 
     def next_trading_day(self, after):
         assert after == self.decision_date
@@ -115,9 +122,7 @@ def test_staged_declaration_is_daily_price_only_and_stateful() -> None:
 
 def test_initial_entry_requires_slow_twenty_day_decline() -> None:
     closes = [Decimal("10") - Decimal("0.06") * index for index in range(20)]
-    decision = _strategy().generate_stateful_decision(
-        _Research(closes), _flat_state(), None, {}
-    )
+    decision = _strategy().generate_stateful_decision(_Research(closes), _flat_state(), None, {})
     assert len(decision.intents) == 1
     intent = decision.intents[0]
     assert intent.side is OrderSide.BUY

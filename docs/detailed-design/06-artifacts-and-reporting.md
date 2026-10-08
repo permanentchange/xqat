@@ -53,6 +53,10 @@ ERROR / SKIP / OVERWRITE 是唯一覆盖策略。
 
 未知 major version 直接拒绝，其他版本也需满足对应物理 Schema 的 schema_version 约束。
 
+strategy_state 1.0 的 position 可选包含 exit_base_quantity / exit_sold_quantity，两字段须同时
+出现或同时省略；新 writer 写出两字段，新 reader 仍接受旧输入省略。trade_intents 1.0 新增
+FIXED_QUANTITY sizing，其 value 必须为正整数；原有 sizing 继续可读。
+
 ## 4. Arrow / CSV Schema
 
 Arrow 表由 SchemaRegistry 以精确字段、类型、nullable、primary key 和排序规则校验。当前包含七张 Research 表，以及 target_history、portfolio_daily、trades、unfilled。
@@ -150,7 +154,15 @@ reporting.readers.load_target 接受 1.0 / 2.0；读取 1.0 时将 rank 转换�
 
 BacktestResultAssembler 负责把 BacktestResult 组装成 Arrow tables、metrics 和 period metrics。ResultArtifactPublisher 负责 Schema 校验、文件编码和 Artifact 发布；Markdown renderer 只格式化已经组装的事实。
 
+metrics 1.0 新结果始终包含 `benchmark_annualized_return`、`benchmark_max_drawdown`、
+`benchmark_sharpe` 和 `benchmark_calmar`，类型为 number 或 null。
+这些字段在 Schema 中为可选字段，旧版 metrics 1.0 仍可校验；公式版本保持 1.0.0。
+完整区间 Markdown 报告以策略/沪深300基准对照表展示累计收益、年化收益、最大回撤、
+夏普率和 Calmar（年化收益 / 最大回撤绝对值），null 显示为“不可计算”。
+`period_metrics.csv` 保持原有策略指标合同。
+
 `result show --format summary|markdown|json` 只读取已发布 Artifact，不重新计算策略或指标。
+旧报告保持原样，重新运行回测才生成新增基准指标和对照表。
 
 ## 11. Failure Diagnostic
 

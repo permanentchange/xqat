@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import TypeAlias
 
 from xqatexp.domain.contracts import AllocationDecision, StrategyDiagnostics
 from xqatexp.domain.enums import OrderSide
@@ -37,12 +36,25 @@ class CurrentPositionFraction:
 
 
 @dataclass(frozen=True, slots=True)
+class FixedQuantity:
+    quantity: int
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.quantity, bool)
+            or not isinstance(self.quantity, int)
+            or self.quantity <= 0
+        ):
+            raise ValueError("STRATEGY_INTENT_INVALID: fixed quantity must be a positive integer")
+
+
+@dataclass(frozen=True, slots=True)
 class FullPosition:
     """Size an intent to the full current position."""
 
 
-IntentSizing: TypeAlias = (
-    FixedNotional | InitialCapitalFraction | CurrentPositionFraction | FullPosition
+type IntentSizing = (
+    FixedNotional | InitialCapitalFraction | CurrentPositionFraction | FixedQuantity | FullPosition
 )
 
 
@@ -67,4 +79,4 @@ class TradeIntentDecision:
     diagnostics: StrategyDiagnostics | None = None
 
 
-StrategyDecision: TypeAlias = AllocationDecision | TradeIntentDecision
+type StrategyDecision = AllocationDecision | TradeIntentDecision

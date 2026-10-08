@@ -4,6 +4,7 @@ from collections.abc import Mapping
 
 from xqatexp.domain.contracts import DataRequirement, StrategyDeclaration
 from xqatexp.domain.enums import StateRequirement
+
 from .parameters import StagedDrawdownParameters
 
 
@@ -15,7 +16,8 @@ def staged_drawdown_declaration(parameters: Mapping[str, object]) -> StrategyDec
         parameter_schema_version="1.0",
         decision_frequency="DAILY",
         lookback_trade_days=values.lookback_trade_days,
-        required_fields=("research_close", "close_raw"),
+        required_fields=("research_close", "close_raw")
+        + (("sell_lot_size",) if values.take_profit_mode == "tiered" else ()),
         required_system_factors=(),
         required_custom_factors=(),
         missing_policies={"price": "EXACT"},
@@ -44,6 +46,24 @@ def staged_drawdown_declaration(parameters: Mapping[str, object]) -> StrategyDec
                 "DAILY",
                 "DATA_COVERAGE_INSUFFICIENT",
             ),
+        )
+        + (
+            (
+                DataRequirement(
+                    "sell_lot_size",
+                    "SECURITY_RULES",
+                    ("sell_lot_size",),
+                    1,
+                    f"SECURITY:{values.security_id}",
+                    True,
+                    "EXACT",
+                    1.0,
+                    "DAILY",
+                    "DATA_REQUIRED_MISSING",
+                ),
+            )
+            if values.take_profit_mode == "tiered"
+            else ()
         ),
         state_requirement=StateRequirement.CONFIRMED_EXECUTION_STATE,
     )

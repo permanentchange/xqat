@@ -40,10 +40,17 @@
             "type": "object",
             "additionalProperties": false,
             "required": ["kind", "value"],
+            "allOf": [
+              {
+                "if": { "properties": { "kind": { "const": "FIXED_QUANTITY" } } },
+                "then": { "properties": { "value": { "type": "integer", "minimum": 1 } } }
+              }
+            ],
             "properties": {
               "kind": {
                 "enum": [
                   "FIXED_NOTIONAL",
+                  "FIXED_QUANTITY",
                   "INITIAL_CAPITAL_FRACTION",
                   "CURRENT_POSITION_FRACTION",
                   "FULL_POSITION"

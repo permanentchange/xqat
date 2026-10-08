@@ -18,6 +18,7 @@ from xqatexp.strategy.decision import stable_instruction_id
 from xqatexp.strategy.intents import (
     CurrentPositionFraction,
     FixedNotional,
+    FixedQuantity,
     FullPosition,
     InitialCapitalFraction,
     TradeIntent,
@@ -49,15 +50,12 @@ class IntentExecutor:
         prices = {security_id: self._reference_price(row) for security_id, row in rows.items()}
         before_positions = dict(account.positions)
         before_cash = account.cash_available + account.cash_receivable
-        open_value = (
-            before_cash
-            + sum(
-                (
-                    Decimal(quantity) * prices[security_id]
-                    for security_id, quantity in before_positions.items()
-                ),
-                Decimal("0"),
-            )
+        open_value = before_cash + sum(
+            (
+                Decimal(quantity) * prices[security_id]
+                for security_id, quantity in before_positions.items()
+            ),
+            Decimal("0"),
         )
 
         executed: list[tuple[ExecutionRecord, AssetType]] = []
@@ -138,19 +136,13 @@ class IntentExecutor:
                 slippage,
             )
             budget_price = modeled_price or price
-            raw_quantity = int(
-                (notional / budget_price).to_integral_value(rounding=ROUND_FLOOR)
-            )
+            raw_quantity = int((notional / budget_price).to_integral_value(rounding=ROUND_FLOOR))
             requested = raw_quantity // buy_lot * buy_lot
             lot_size = buy_lot
             target_quantity = current + requested
         else:
             raw_quantity, full_exit = self._sell_quantity(intent, current, price, state)
-            requested = (
-                raw_quantity
-                if full_exit
-                else raw_quantity // sell_lot * sell_lot
-            )
+            requested = raw_quantity if full_exit else raw_quantity // sell_lot * sell_lot
             lot_size = sell_lot
             target_quantity = max(0, current - requested)
 
@@ -196,17 +188,15 @@ class IntentExecutor:
         del state
         if isinstance(intent.sizing, FullPosition):
             return current, True
+        if isinstance(intent.sizing, FixedQuantity):
+            return min(current, intent.sizing.quantity), intent.sizing.quantity >= current
         if isinstance(intent.sizing, CurrentPositionFraction):
             raw = int(
-                (Decimal(current) * intent.sizing.fraction).to_integral_value(
-                    rounding=ROUND_FLOOR
-                )
+                (Decimal(current) * intent.sizing.fraction).to_integral_value(rounding=ROUND_FLOOR)
             )
             return raw, raw == current
         if isinstance(intent.sizing, FixedNotional):
-            raw = int(
-                (intent.sizing.amount / price).to_integral_value(rounding=ROUND_FLOOR)
-            )
+            raw = int((intent.sizing.amount / price).to_integral_value(rounding=ROUND_FLOOR))
             return min(current, raw), raw >= current
         raise ValueError("STRATEGY_INTENT_INVALID: unsupported sell sizing")
 

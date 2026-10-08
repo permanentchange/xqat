@@ -27,6 +27,7 @@ class ResearchAccessError(ValueError):
 
 
 _MINIMUM_TEMP_FREE_BYTES = 1024**3
+_SECURITY_RULE_FIELDS = frozenset({"buy_lot_size", "sell_lot_size", "price_tick"})
 
 
 def _remove_session_temp(path: Path, parent: Path) -> None:
@@ -309,6 +310,26 @@ class ResearchDataViewImpl:
         sample_day: date,
         custom_factors: CustomFactorView | None,
     ) -> float:
+        if requirement.dataset == "SECURITY_RULES":
+            if (
+                not requirement.security_scope.startswith("SECURITY:")
+                or not requirement.fields
+                or not set(requirement.fields).issubset(_SECURITY_RULE_FIELDS)
+                or not set(requirement.fields).issubset(self._declaration.required_fields)
+            ):
+                raise ResearchAccessError(
+                    "CONFIG_VALUE_INVALID: unsupported SECURITY_RULES request"
+                )
+            security_id = requirement.security_scope.removeprefix("SECURITY:")
+            predicates = " AND ".join(f"{field}>0" for field in requirement.fields)
+            observed = _count(
+                self._connection.execute(
+                    "SELECT COUNT(*) FROM security_master WHERE security_id=? "
+                    "AND rule_effective_from<=? AND " + predicates,
+                    [security_id, sample_day],
+                )
+            )
+            return 1.0 if observed else 0.0
         if requirement.dataset == "MARKET_HISTORY":
             if not requirement.security_scope.startswith("SECURITY:"):
                 raise ResearchAccessError(
@@ -328,16 +349,13 @@ class ResearchDataViewImpl:
                 "research_close",
             }
             if not requirement.fields or not set(requirement.fields).issubset(allowed_fields):
-                raise ResearchAccessError(
-                    "CONFIG_VALUE_INVALID: unsupported MARKET_HISTORY fields"
-                )
+                raise ResearchAccessError("CONFIG_VALUE_INVALID: unsupported MARKET_HISTORY fields")
             security_id = requirement.security_scope.removeprefix("SECURITY:")
             predicates = " AND ".join(f"{field} IS NOT NULL" for field in requirement.fields)
             observed = _count(
                 self._connection.execute(
                     "SELECT COUNT(*) FROM market_daily WHERE security_id=? "
-                    "AND trade_date=? AND available_from<=? AND "
-                    + predicates,
+                    "AND trade_date=? AND available_from<=? AND " + predicates,
                     [security_id, sample_day, sample_day],
                 )
             )
@@ -470,6 +488,38 @@ class ResearchDataSliceImpl:
         return tuple(
             SecuritySnapshot(row["security_id"], AssetType(row.pop("asset_type")), dict(row))
             for row in rows
+        )
+
+    def security_rules(
+        self, security_ids: Sequence[str], fields: Sequence[str]
+    ) -> tuple[dict[str, Any], ...]:
+        if (
+            not fields
+            or not set(fields).issubset(_SECURITY_RULE_FIELDS)
+            or not set(fields).issubset(self._declaration.required_fields)
+        ):
+            raise ResearchAccessError("STRATEGY_FIELD_UNDECLARED: security rules request")
+        declared_ids = {
+            requirement.security_scope.removeprefix("SECURITY:")
+            for requirement in self._declaration.data_requirements
+            if requirement.dataset == "SECURITY_RULES"
+            and requirement.security_scope.startswith("SECURITY:")
+        }
+        if not set(security_ids).issubset(declared_ids):
+            raise ResearchAccessError("STRATEGY_FIELD_UNDECLARED: security rules security scope")
+        if not security_ids:
+            return ()
+        columns = ",".join(fields)
+        placeholders = ",".join("?" for _ in security_ids)
+        return tuple(
+            _rows(
+                self._connection.execute(
+                    f"SELECT security_id,{columns} FROM security_master "
+                    f"WHERE security_id IN ({placeholders}) AND rule_effective_from<=? "
+                    "ORDER BY security_id",
+                    [*security_ids, self.as_of_date],
+                )
+            )
         )
 
     def history(

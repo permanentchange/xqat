@@ -9,6 +9,9 @@ output = ".local/staged-etf-backtest"
 
 [strategy]
 security_id = "510300.SH"
+take_profit_mode = "tiered"
+take_profit_levels = [0.10, 0.20, 0.30]
+take_profit_sell_fractions = [0.30, 0.30, 0.40]
 
 [execution]
 initial_cash = 1000000

@@ -29,6 +29,7 @@ IntentExecutor 接收 TradeIntentDecision 和 StrategyStateView。Intent 固定�
 
 - CurrentPositionFraction：当前实际持仓比例；
 - FullPosition：全部持仓；
+- FixedQuantity：固定正整数数量，不超过当前持仓；达到全部持仓时视为完整退出；
 - FixedNotional：按参考价换算数量。
 
 买入股数使用 ExecutionSimulator 的 modeled execution price 计算预算，再按 buy lot 向下取整。卖出非全清仓按 sell lot 向下取整；全清仓允许 odd-lot 全部退出。
@@ -127,6 +128,13 @@ Dividend tax model：
 PerformanceAnalyzer 基于每日 NAV 计算 cumulative return、252 日年化收益、年化波动率、最大回撤及峰谷/恢复日期、Sharpe、Calmar。少于 60 个 return intervals 时标记 `SHORT_PERFORMANCE_SAMPLE`。
 
 BacktestResultAssembler 另外汇总 benchmark return、excess return、turnover、fees、slippage、仓位暴露、贡献和用户定义 analysis periods。报告层只组装已经产生的业务事实，不重新运行策略。
+
+完整基准 NAV 与策略使用相同估值日期，并复用 PerformanceAnalyzer 计算基准年化收益、
+最大回撤、Sharpe 和 Calmar。策略与基准都使用年化无风险利率 0；Sharpe 使用日收益均值
+除以样本标准差再乘以 √252，Calmar 使用年化收益除以最大回撤绝对值。
+最大回撤以非正数表示；零波动或仅一个收益区间时 Sharpe 为 null，零回撤时 Calmar 为 null。
+任一估值日缺少基准 NAV 时，基准收益和新增基准指标都为 null，并标记
+`BENCHMARK_UNAVAILABLE`，不缩短基准区间或填补缺失数据。
 
 ## 10. 数据与结果入口
 

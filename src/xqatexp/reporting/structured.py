@@ -8,7 +8,6 @@ from pathlib import Path
 from xqatexp.artifacts.manifest import canonical_json_bytes
 from xqatexp.domain.contracts import (
     AccountSnapshot,
-    AllocationDecision,
     ResolvedRunContext,
     TargetPortfolio,
     TradeAdvice,
@@ -17,6 +16,7 @@ from xqatexp.domain.issues import Issue
 from xqatexp.strategy.intents import (
     CurrentPositionFraction,
     FixedNotional,
+    FixedQuantity,
     FullPosition,
     InitialCapitalFraction,
     StrategyDecision,
@@ -150,6 +150,8 @@ def trade_intents_value(decision: TradeIntentDecision) -> dict[str, object]:
     def sizing_value(sizing: object) -> dict[str, object]:
         if isinstance(sizing, FixedNotional):
             return {"kind": "FIXED_NOTIONAL", "value": sizing.amount}
+        if isinstance(sizing, FixedQuantity):
+            return {"kind": "FIXED_QUANTITY", "value": sizing.quantity}
         if isinstance(sizing, InitialCapitalFraction):
             return {"kind": "INITIAL_CAPITAL_FRACTION", "value": sizing.fraction}
         if isinstance(sizing, CurrentPositionFraction):

@@ -116,6 +116,8 @@ StrategyPositionState 保存 quantity、remaining cost basis、last trade side/d
 
 - BUY：成本基础增加 gross + fees；last buy price 使用实际 execution price。
 - SELL：按卖出前平均成本比例释放 remaining cost basis。
+- 可选 exit_base_quantity / exit_sold_quantity：首次 SELL 锁定数量基准并累计确认卖出量；
+  BUY 或清仓重置。送股/拆股按剩余持仓比例调整为等价数量，保留 12 位小数。
 - 送股/拆分：成本基础不变；数量增加；last buy price 按数量扩张比例调整。
 - 估值事件更新 state 的 as-of date。
 - 早于当前 state as-of 的成交会被拒绝。
