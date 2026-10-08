@@ -1,0 +1,33 @@
+schema_version = "1.0"
+method = "grid"
+start_date = "2020-01-01"
+end_date = "2024-01-01"
+workers = 32
+
+[objective]
+metric = "sharpe"
+direction = "maximize"
+
+[[constraints]]
+metric = "trade_count"
+operator = ">"
+value = 2
+
+[[constraints]]
+metric = "annualized_return"
+operator = ">"
+value = 0.01
+
+[fixed_strategy]
+entry_confirmation_mode = "ma_rebound"
+
+[parameters]
+entry_confirmation_ma_days = [2, 3, 5, 8, 10, 15, 20]
+entry_confirmation_window_days = [0, 3, 5, 10, 15, 20]
+
+[ordered_arrays]
+take_profit_levels = [
+  [0.05, 0.10, 0.15],
+  [0.10, 0.20, 0.30],
+  [0.20, 0.30, 0.50],
+]

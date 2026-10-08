@@ -79,6 +79,21 @@ tiered 分级止盈：盈利达到 10%、20%、30% 时，累计卖出首次止�
 每档只补卖已确认成交后的差额；小持仓不足一个卖出单位时提前清仓，最高档全部退出。
 清仓后可按原建仓条件开始新周期。档位和比例可配置，详见策略 README。
 
+ETF 示例使用原下跌信号直接入场（`entry_confirmation_mode="none"`）。可选 `ma_rebound`
+保留下跌信号最多 10 个交易日，待复权收盘高于 MA5 且上涨后首次建仓，需要 30 日历史。
+`allow_add_after_sell` 默认 false；研究时可解除止盈后加仓禁令，仍按最后买入价再跌10%追加，
+卖出不归还累计投入额度，确认重新买入后重启剩余持仓的分级止盈进度。
+
+固定研究协议使用30%累计投入上限，对照入场确认和卖后加仓两项开关，再测试20/30 bps滑点；
+另复现100%上限基线，共13次离线回测。运行后查看输出目录的 `report.md`：
+
+```bash
+python examples/analyze_staged_drawdown.py --config examples/config-staged-etf.toml --start-date 2020-03-02 --end-date 2026-09-01 --output .local/staged-etf-mechanism-study
+```
+
+输出必须使用新目录。脚本保存有效配置、输入/输出哈希、逐日加仓诊断、逐年/逐周期对照，
+以及按事件组计算的20/60/120日收益；结果属于开发样本，不自动选取或启用最高夏普配置。
+
 趋势使用复权后的 `research_close`；加仓锚点和持仓收益使用 `close_raw`。决策在 D 日收盘后产生，当前执行模型为 D+1 NEXT_OPEN，不模拟 9:15–9:25 集合竞价订单簿。详细逻辑、参数和运行方式见 [策略 README](src/xqatexp/strategy/strategies/staged_drawdown_v1/README.md)。
 
 ### 策略源码组织
@@ -130,6 +145,18 @@ xqatexp result show --input .example-work/backtest --format markdown
 最大回撤绝对值。收益与回撤使用小数比例，最大回撤为负数；无法计算的指标显示
 “不可计算”。基准任一估值日缺失时，基准指标不使用部分区间计算。
 `result show` 读取已发布报告；旧结果需重新运行 `backtest run` 才能生成新增指标。
+
+参数优化使用 `backtest opt`，由普通策略配置与独立优化配置共同定义实验。
+示例遍历 504 个入场确认与分级止盈组合，训练区间结束于 2024-01-01：
+
+```bash
+xqatexp backtest opt --config examples/config-staged-etf.toml --opt-config examples/config-staged-etf-opt.toml --output .local/staged-etf-backtest-opt --start-date 2013-01-01 --existing overwrite
+```
+
+增加 `--dry-run` 可只读预检，`--workers` 控制多进程并行，`--resume` 恢复中断。
+`backtest opt-report` 支持合并独立实验或网格分片；加 `--opt-config` 可按新条件
+重新筛选一个完整实验，复用历史结果，不重跑回测。配置继承、约束、输出和复现命令见
+[参数优化指南](docs/optimization.md)。
 
 如果生成脚本报 `ARTIFACT_OUTPUT_EXISTS: research`，说明 `.example-work/research` 已存在。
 已有离线示例数据可直接复用，跳过生成步骤即可；需要重新生成时显式运行：
@@ -267,7 +294,7 @@ CI 以 Linux 为主门禁，Windows 为兼容性 job；Ruff/Mypy 为 advisory，
 | 获取数据 | `data capabilities`、`data fetch`、`data fetch-batch` |
 | 数据组织与构建 | `data collection index`、`data build`、`data update` |
 | 数据与因子检查 | `data check-raw`、`data check-research`、`factor check` |
-| 策略运行 | `backtest run`、`daily target`、`daily decide`、`daily advise` |
+| 策略运行 | `backtest run`、`backtest opt`、`backtest opt-report`、`daily target`、`daily decide`、`daily advise` |
 | 确认状态 | `state init`、`state apply-fill`、`state apply-stock-adjustment` |
 | 结果读取 | `result show` |
 

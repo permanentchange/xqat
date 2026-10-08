@@ -47,6 +47,7 @@ flowchart LR
 | Execution / Backtest | `backtest/` | 决策执行、撮合、费用、模拟账户、公司行为、回测主循环 |
 | Daily | `daily/` | Daily Target、stateful Daily Decision、AccountSnapshot 与 TradeAdvice |
 | Performance | `performance/` | NAV 收益、回撤、Sharpe、Calmar、贡献与阶段分析 |
+| Optimization | `optimization/` | 通用离散网格、多进程 evaluator、实验检查点、约束排名与报告；由 application 接入 Registry 和回测工作流 |
 | Reporting | `reporting/` | Result 组装、结构化输出、Markdown、Failure Diagnostic |
 | Operations / Security | `operations/`, `security.py` | 脱敏运行日志、Token 边界、路径隔离 |
 
@@ -127,6 +128,16 @@ BacktestWorkflow 打开 ResearchSession，执行 readiness，然后将 Strategy�
 
 - allocation 策略：`daily target` 生成 TargetPortfolio；`daily advise` 可结合 AccountSnapshot 生成参考数量。
 - stateful 策略：`daily decide` 必须读取 StrategyStateSnapshot，生成 TradeIntentDecision；真实成交后由 `state apply-fill` 更新 state。
+
+### 5.4 参数优化
+
+`backtest opt` 通过 `application/optimization.py` 解析普通配置和优化配置，使用
+Registry 规范化全部候选。通用优化库以可序列化 evaluator 为接口，在独立进程中
+调用现有 Backtest 工作流。每个试验独立账户和 ResearchSession，发布标准 Result
+Artifact；实验根目录单独保存输入指纹、原子检查点与排名，不增加 RunMode。
+`backtest opt-report` 校验并合并兼容实验；提供 `--opt-config` 时，从一个完整原始
+实验复用已验证的指标，重新判断约束并导出最佳配置，不调用回测。衍生报告通过
+来源记录指向原始试验，不复制结果 Artifact。见 [优化指南](optimization.md)。
 
 ## 6. 扩展点
 

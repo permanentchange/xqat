@@ -14,6 +14,11 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from xqatexp.application.optimization import (
+    merge_optimizations,
+    reselect_optimization,
+    run_optimization,
+)
 from xqatexp.application.services import SelfCheckService
 from xqatexp.application.workflows import StrategyWorkflowService
 from xqatexp.artifacts.manifest import canonical_json_bytes
@@ -116,10 +121,30 @@ def _build_parser() -> argparse.ArgumentParser:
     factor_check.add_argument("--report", required=True, type=Path)
 
     backtest = commands.add_parser("backtest", help="Run a historical evaluation.")
-    backtest_run = backtest.add_subparsers(dest="backtest_command", metavar="COMMAND").add_parser(
-        "run"
-    )
+    backtest_commands = backtest.add_subparsers(dest="backtest_command", metavar="COMMAND")
+    backtest_run = backtest_commands.add_parser("run")
     _add_run_arguments(backtest_run, dates="range")
+    backtest_opt = backtest_commands.add_parser("opt", help="Optimize strategy parameters offline.")
+    _add_run_arguments(backtest_opt, dates="range")
+    backtest_opt.add_argument("--opt-config", required=True, type=Path)
+    backtest_opt.add_argument("--workers", type=int)
+    backtest_opt.add_argument("--dry-run", action="store_true")
+    backtest_opt.add_argument("--resume", action="store_true")
+    backtest_opt.add_argument("--shard-count", type=int, default=1)
+    backtest_opt.add_argument("--shard-index", type=int, default=0)
+    opt_report = backtest_commands.add_parser(
+        "opt-report", help="Merge studies or reselect saved results without backtesting."
+    )
+    opt_report.add_argument(
+        "--input", dest="study_inputs", action="append", required=True, type=Path
+    )
+    opt_report.add_argument("--output", required=True, type=Path)
+    opt_report.add_argument(
+        "--opt-config", type=Path, help="Reselect one complete study using new selection criteria."
+    )
+    opt_report.add_argument("--dry-run", action="store_true")
+    opt_report.add_argument("--existing", choices=("error", "skip", "overwrite"), default="error")
+    opt_report.add_argument("--failure-report", type=Path)
 
     daily = commands.add_parser("daily", help="Generate daily target or advice artifacts.")
     daily_commands = daily.add_subparsers(dest="daily_command", metavar="COMMAND")
@@ -204,7 +229,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     generated_at = datetime.now(UTC)
     args._run_id = run_id
     args._generated_at = generated_at
-    logger = JsonlEventLogger(args.log_file, run_id) if args.log_file is not None else None
+    opt_dry_run = (
+        args.command == "backtest"
+        and args.backtest_command in {"opt", "opt-report"}
+        and args.dry_run
+    )
+    logger = (
+        JsonlEventLogger(args.log_file, run_id)
+        if args.log_file is not None and not opt_dry_run
+        else None
+    )
     if logger is not None:
         try:
             logger.emit(
@@ -242,6 +276,7 @@ def _validate_cli_path_graph(args: argparse.Namespace) -> None:
     outputs: dict[str, Path] = {}
     for name in (
         "config",
+        "opt_config",
         "target",
         "account",
         "previous_target",
@@ -257,7 +292,7 @@ def _validate_cli_path_graph(args: argparse.Namespace) -> None:
         value = getattr(args, name, None)
         if isinstance(value, Path):
             inputs[name] = value
-    for name in ("raw_root", "custom_factor"):
+    for name in ("raw_root", "custom_factor", "study_inputs"):
         values = getattr(args, name, ())
         if isinstance(values, list):
             for index, value in enumerate(values):
@@ -315,6 +350,8 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         return _run_data(args)
     if args.command == "factor":
         return _run_factor(args)
+    if args.command == "backtest" and args.backtest_command in {"opt", "opt-report"}:
+        return _run_optimization(args)
     if args.command in {"backtest", "daily"}:
         return _run_strategy(args)
     if args.command == "state":
@@ -392,6 +429,78 @@ def _run_factor(args: argparse.Namespace) -> int:
         return 4
     print(f"FACTOR_CHECK valid={str(report.valid).lower()} report={args.report}")
     return 0 if report.valid else 3
+
+
+def _run_optimization(args: argparse.Namespace) -> int:
+    try:
+        if args.backtest_command == "opt-report":
+            if args.opt_config is not None:
+                manifest = reselect_optimization(
+                    args.study_inputs,
+                    args.opt_config,
+                    args.output,
+                    args.existing,
+                    dry_run=args.dry_run,
+                )
+            else:
+                manifest = merge_optimizations(
+                    args.study_inputs, args.output, args.existing, dry_run=args.dry_run
+                )
+        else:
+            manifest = run_optimization(
+                config=args.config,
+                opt_config=args.opt_config,
+                output=args.output,
+                start_date=args.start_date,
+                end_date=args.end_date,
+                workers=args.workers,
+                existing=args.existing,
+                resume=args.resume,
+                dry_run=args.dry_run,
+                shard_count=args.shard_count,
+                shard_index=args.shard_index,
+                custom_factors=args.custom_factor,
+            )
+        if manifest["status"] == "dry_run":
+            print("OPT_DRY_RUN valid=true")
+        else:
+            print(f"OPT_WRITTEN status={manifest['status']} output={args.output.resolve()}")
+            if manifest["status"] != "complete":
+                _publish_failure_if_requested(
+                    args,
+                    args._run_id,
+                    args._generated_at,
+                    ValueError(f"OPT_INCOMPLETE: status={manifest['status']}"),
+                )
+        return 0 if manifest["status"] in {"complete", "dry_run"} else 5
+    except KeyboardInterrupt:
+        action = (
+            "run opt-report again"
+            if args.backtest_command == "opt-report"
+            else "completed results retained; continue with --resume"
+        )
+        print(f"OPT_INTERRUPTED: {action}", file=sys.stderr)
+        return 130
+    except ArtifactPublishError as error:
+        if not getattr(args, "dry_run", False):
+            _publish_failure_if_requested(args, args._run_id, args._generated_at, error)
+        print(str(error), file=sys.stderr)
+        return 4
+    except (OSError, ValueError, KeyError) as error:
+        if not getattr(args, "dry_run", False):
+            _publish_failure_if_requested(args, args._run_id, args._generated_at, error)
+        print(str(error), file=sys.stderr)
+        return (
+            3
+            if str(error).split(":", 1)[0]
+            in {
+                "DATA_REQUIRED_MISSING",
+                "DATA_COVERAGE_INSUFFICIENT",
+                "STRATEGY_WARMUP_INSUFFICIENT",
+                "DATA_INPUT_CORRUPT",
+            }
+            else 2
+        )
 
 
 def _run_strategy(args: argparse.Namespace) -> int:
@@ -505,6 +614,7 @@ def _publish_failure_if_requested(
     references = []
     for alias, name in (
         ("config", "config"),
+        ("opt-config", "opt_config"),
         ("target", "target"),
         ("account", "account"),
         ("strategy-state", "state"),

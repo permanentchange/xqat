@@ -15,6 +15,8 @@
 - `data check-research`
 - `factor check`
 - `backtest run`
+- `backtest opt`
+- `backtest opt-report`
 - `daily target`
 - `daily decide`
 - `daily advise`
@@ -83,7 +85,10 @@ StrategyWorkflowService 编排策略运行；数据、因子和 state 命令由 
 
 ### backtest
 
-解析 StrategySpec 和 declaration，创建 ResearchSession，执行 readiness，构造 strategy；stateful strategy 自动获得 StrategyStateReducer。完成后交给 ResultArtifactPublisher。
+解析 StrategySpec 和 declaration，创建 ResearchSession，按请求区间最后一个交易日
+执行 readiness 并限定自定义因子日期；请求区间可以以休市日为端点，无交易日时失败。
+Engine 和 resolved config 保留请求的 start/end，估值与成交仅发生在区间内交易日。
+stateful strategy 自动获得 StrategyStateReducer。完成后交给 ResultArtifactPublisher。
 
 ### daily target
 
@@ -151,3 +156,26 @@ Backtest/Daily 的 DATA_REQUIRED_MISSING、DATA_COVERAGE_INSUFFICIENT、STRATEGY
 
 Backtest/Daily 可用 --failure-report 发布独立 Failure Diagnostic。
 未处理异常不会输出 provider 原文或完整 traceback；结构化日志通过全局 --log-file 写入。
+
+## 11. 参数优化
+
+`backtest opt` 必须提供 `--config`、`--opt-config` 和 `--output`。沿用 range 日期、
+custom factor、existing 和 failure report 参数，增加 workers、dry-run、resume 和
+shard-count/shard-index。CLI 分派到 Optimization 应用服务，不进入普通运行分支。
+日期优先级为 CLI > 优化配置 > 普通配置；未搜索的策略和执行字段继承普通配置。
+优化 TOML 的固定覆盖与候选必须通过 Registry 校验。
+
+Application 为每个候选构造独立 BACKTEST context，清空附加 analysis periods，
+按训练窗口调用 StrategyWorkflowService。优化库处理通用网格、evaluator 多进程调用、
+检查点和排名，不直接依赖 Application 或具体策略。指标读取现有结果；trade_count
+统计 BUY/SELL 实际成交记录。所有输入与实验输出必须互不包含，包括 opt-config。
+
+`backtest opt-report` 接受重复 `--input`、`--output` 和 `--existing`，验证兼容性后
+合并去重结果。优化根目录为实验记录，其下试验目录遵循原 Result Artifact 合同。
+提供可选 `--opt-config` 时，应用层切换到单个完整原始实验的复筛流程；只允许目标、
+约束及 workers 变化，使用保存的实际训练区间。校验完整候选、检查点、全部试验及
+基准后重新排名，不调用 StrategyWorkflowService 或工作进程。派生 Manifest 记录
+`operation = "reselect"`、原回测代码指纹和来源身份，CSV 与最佳结果保存原试验路径；
+不作为续跑、合并或复筛输入。`--dry-run` 支持合并和复筛，禁止日志及失败报告写入。
+试验失败或合并不完整返回 5；中断返回 130。运行协议见
+[参数优化指南](../optimization.md)。

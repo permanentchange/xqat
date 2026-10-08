@@ -36,14 +36,20 @@ class StrategyWorkflowService:
         run = BacktestRunSpec.from_context(context)
         spec = self._strategy_spec(context)
         declaration = spec.declaration(context.parameters)
-        custom = self._custom(context, run.end_date, spec)
         strategy = spec.create(context.parameters)
         with ResearchSession(
             context.research_artifact_path,
             declaration,
             temporary_parent=context.output_path.parent,
         ) as session:
-            readiness = ReadinessChecker().check(declaration, session.view(run.end_date), custom)
+            trading_days = session.trading_days(run.start_date, run.end_date)
+            if not trading_days:
+                raise ValueError("DATA_REQUIRED_MISSING: no trading days in backtest range")
+            last_trading_day = trading_days[-1]
+            custom = self._custom(context, last_trading_day, spec)
+            readiness = ReadinessChecker().check(
+                declaration, session.view(last_trading_day), custom
+            )
             if not readiness.is_ready:
                 raise ValueError(f"{readiness.issues[0]}: backtest input is not ready")
             result = BacktestEngine().run(
@@ -58,8 +64,7 @@ class StrategyWorkflowService:
                 schedule=spec.schedule,
                 state_reducer=(
                     StrategyStateReducer(context.strategy_id, context.strategy_version)
-                    if declaration.state_requirement
-                    is StateRequirement.CONFIRMED_EXECUTION_STATE
+                    if declaration.state_requirement is StateRequirement.CONFIRMED_EXECUTION_STATE
                     else None
                 ),
             )
