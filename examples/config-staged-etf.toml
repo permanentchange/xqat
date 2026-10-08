@@ -3,12 +3,15 @@ mode = "BACKTEST"
 strategy_id = "staged_drawdown_v1"
 strategy_version = "1.0.0"
 research_artifact = "data/research/staged-etf"
-start_date = "2025-01-01"
+start_date = "2012-01-01"
 end_date = "2026-09-01"
 output = ".local/staged-etf-backtest"
 
 [strategy]
 security_id = "510300.SH"
+entry_confirmation_mode = "none"
+entry_confirmation_ma_days = 5
+entry_confirmation_window_days = 10
 take_profit_mode = "tiered"
 take_profit_levels = [0.10, 0.20, 0.30]
 take_profit_sell_fractions = [0.30, 0.30, 0.40]

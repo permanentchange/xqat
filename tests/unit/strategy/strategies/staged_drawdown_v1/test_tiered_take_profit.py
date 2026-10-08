@@ -1,4 +1,5 @@
 from dataclasses import replace
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -7,7 +8,12 @@ from tests.unit.strategy.strategies.staged_drawdown_v1.test_staged_drawdown impo
 from tests.unit.strategy.test_state import _fill
 from xqatexp.backtest.account_events import SplitApplied, StockDistributionApplied
 from xqatexp.domain.enums import OrderSide
-from xqatexp.strategy.intents import FixedQuantity, FullPosition
+from xqatexp.strategy.intents import (
+    FixedNotional,
+    FixedQuantity,
+    FullPosition,
+    InitialCapitalFraction,
+)
 from xqatexp.strategy.state import (
     StrategyPositionState,
     StrategyStateReducer,
@@ -122,6 +128,77 @@ def test_average_cost_includes_buy_fees() -> None:
     state = reducer.replay(Decimal("100000"), (_fill(OrderSide.BUY, 1000, 1000, "10", fees="10"),))
     assert _decision("11", state).intents == ()
     assert _decision("11.011", state).intents[0].sizing == FixedQuantity(300)
+
+
+@pytest.mark.parametrize("value", [0, 1, "true", "false", None])
+def test_add_after_sell_requires_boolean_parameter(value):
+    with pytest.raises(ValueError, match="allow_add_after_sell"):
+        StagedDrawdownStrategy({"security_id": "600000.SH", "allow_add_after_sell": value})
+
+
+def test_add_after_sell_uses_last_buy_anchor_and_does_not_return_sold_budget():
+    from xqatexp.daily.stateful import StatefulDailyDecisionService
+
+    reducer = StrategyStateReducer("staged_drawdown_v1", "1.0.0")
+    state = reducer.apply(_state(), _fill(OrderSide.SELL, 300, 300, "11"))
+    enabled = StagedDrawdownStrategy(
+        {
+            "security_id": "600000.SH",
+            "take_profit_mode": "tiered",
+            "allow_add_after_sell": True,
+            "max_capital_fraction": Decimal("0.30"),
+        }
+    )
+    service = StatefulDailyDecisionService()
+    research = _Research([Decimal("9.1")] * 20, start=date(2026, 8, 19))
+    assert service.run(enabled, research, state, None, {}, account=None).intents == ()
+    research = _Research([Decimal("9")] * 20, start=date(2026, 8, 19))
+    disabled = service.run(_strategy(), research, state, None, {}, account=None)
+    assert disabled.intents == ()
+    assert disabled.diagnostics.values["add_blocked_after_sell"] is True
+    decision = service.run(enabled, research, state, None, {}, account=None)
+    assert decision.intents[0].sizing == InitialCapitalFraction(Decimal("0.10"))
+    assert decision.diagnostics.values["signal"] == "ADD_ON_DECLINE"
+    assert decision.diagnostics.values["add_budget_remaining"] == Decimal("20000")
+    assert service.run(enabled, research, state, None, {}, account=None) == decision
+    assert state.positions[0].exit_sold_quantity == 300
+    # A partial confirmed BUY resets exit progress; the unfilled suggestion did not.
+    state = reducer.apply(state, _fill(OrderSide.BUY, 1100, 100, "9"))
+    position = state.positions[0]
+    assert position.quantity == 800
+    assert position.exit_base_quantity is None
+    assert position.exit_sold_quantity == 0
+    assert position.cumulative_buy_notional == Decimal("10900")
+    decision = service.run(
+        enabled,
+        _Research([Decimal("12")] * 20, start=date(2026, 8, 19)),
+        state,
+        None,
+        {},
+        account=None,
+    )
+    assert decision.intents[0].sizing == FixedQuantity(400)
+
+
+def test_readdition_respects_exhausted_and_partial_remaining_budget():
+    reducer = StrategyStateReducer("staged_drawdown_v1", "1.0.0")
+    state = reducer.apply(_state(), _fill(OrderSide.SELL, 300, 300, "11"))
+    research = _Research([Decimal("9")] * 20)
+    for cap, sizing in [("0.10", None), ("0.15", FixedNotional(Decimal("5000")))]:
+        strategy = StagedDrawdownStrategy(
+            {
+                "security_id": "600000.SH",
+                "take_profit_mode": "tiered",
+                "allow_add_after_sell": True,
+                "max_capital_fraction": Decimal(cap),
+            }
+        )
+        decision = strategy.generate_stateful_decision(research, StrategyStateView(state), None, {})
+        if sizing is None:
+            assert decision.intents == ()
+            assert decision.diagnostics.values["add_budget_exhausted"] is True
+        else:
+            assert decision.intents[0].sizing == sizing
 
 
 def test_adjustments_preserve_exit_proportions_and_new_buy_resets_statistics() -> None:

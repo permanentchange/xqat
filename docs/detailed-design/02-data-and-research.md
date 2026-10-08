@@ -143,6 +143,10 @@ required requirement 低于 minimum coverage 时，返回 declaration 指定的 
 SECURITY_RULES 对指定证券检查生效日期和声明规则字段的正值覆盖，分级止盈要求当前日
 sell_lot_size 覆盖率 100%。
 
+staged_drawdown_v1 启用 ma_rebound 入场确认时，日历和行情声明窗口扩大为
+`max(下跌窗口 + 等待期限, MA周期, 2)`，默认 30 日；信号仍使用各自的 20 日价格窗口。
+readiness 与受限查询使用同一完整窗口，不为缺失行情缩短计算范围。
+
 ## 10. 自定义因子
 
 用户自定义因子是 CSV，固定列：

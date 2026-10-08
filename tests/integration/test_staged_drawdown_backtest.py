@@ -203,3 +203,95 @@ def test_tiered_backtest_retries_volume_limited_fill_without_reselling_completed
     assert result.decisions[-1].intents == ()
     assert result.strategy_state.positions[0].exit_base_quantity == 2300
     assert result.strategy_state.positions[0].exit_sold_quantity == 600
+
+
+class _EntryData(_Data):
+    def __init__(self):
+        start = date(2026, 8, 1)
+        self.days = tuple(start + timedelta(days=index) for index in range(34))
+        prices = (
+            [Decimal("10")] * 10
+            + [Decimal("10") - Decimal("0.06") * index for index in range(20)]
+            + [Decimal("9.2"), Decimal("9.3"), Decimal("9.4"), Decimal("9.5")]
+        )
+        self.closes = dict(zip(self.days, prices, strict=True))
+        self.opens = {}
+
+
+def test_entry_confirmation_executes_next_open_matches_daily_and_ignores_future_prices():
+    from xqatexp.daily.stateful import StatefulDailyDecisionService
+    from xqatexp.strategy.state import StrategyStateView
+
+    data = _EntryData()
+    strategy = StagedDrawdownStrategy(
+        {"security_id": "600000.SH", "entry_confirmation_mode": "ma_rebound"}
+    )
+    reducer = StrategyStateReducer("staged_drawdown_v1", "1.0.0")
+    result = BacktestEngine().run(
+        data=data,
+        strategy=strategy,
+        parameters=strategy.parameters.as_mapping(),
+        custom=None,
+        start_date=data.days[29],
+        end_date=data.days[32],
+        initial_cash=Decimal("100000"),
+        execution_assumptions={
+            "slippage_bps": Decimal("0"),
+            "max_volume_participation": Decimal("0.10"),
+        },
+        schedule=DailyCloseSchedule(),
+        state_reducer=reducer,
+    )
+    assert result.decisions[0].intents == ()
+    assert [item.execution_date for item in result.trades] == [data.days[31]]
+    assert result.trades[0].execution_price == Decimal("9.3")
+    state = reducer.initial(Decimal("100000"))
+    daily = StatefulDailyDecisionService()
+    decision = daily.run(strategy, data.view(data.days[30]), state, None, {}, account=None)
+    assert decision == result.decisions[1]
+    assert daily.run(strategy, data.view(data.days[30]), state, None, {}, account=None) == decision
+    assert state.positions == ()
+    data.closes[data.days[31]] = Decimal("999")
+    data.closes[data.days[32]] = Decimal("0.01")
+    assert (
+        strategy.generate_stateful_decision(
+            data.view(data.days[30]), StrategyStateView(state), None, {}
+        )
+        == decision
+    )
+
+
+def test_unfilled_confirmation_rechecks_prices_without_creating_position_state():
+    data = _EntryData()
+    original_execution_rows = data.execution_rows
+
+    def execution_rows(day, security_ids):
+        return tuple(
+            {**row, "is_suspended_full_day": day == data.days[31]}
+            for row in original_execution_rows(day, security_ids)
+        )
+
+    data.execution_rows = execution_rows
+    strategy = StagedDrawdownStrategy(
+        {"security_id": "600000.SH", "entry_confirmation_mode": "ma_rebound"}
+    )
+    reducer = StrategyStateReducer("staged_drawdown_v1", "1.0.0")
+    result = BacktestEngine().run(
+        data=data,
+        strategy=strategy,
+        parameters=strategy.parameters.as_mapping(),
+        custom=None,
+        start_date=data.days[29],
+        end_date=data.days[32],
+        initial_cash=Decimal("100000"),
+        execution_assumptions={
+            "slippage_bps": Decimal("0"),
+            "max_volume_participation": Decimal("0.10"),
+        },
+        schedule=DailyCloseSchedule(),
+        state_reducer=reducer,
+    )
+    assert [item.execution_date for item in result.trades] == [data.days[32]]
+    assert result.decisions[2].diagnostics.values["position_quantity"] == 0
+    assert result.decisions[2].diagnostics.values["entry_setup_age_trade_days"] == 2
+    assert result.strategy_state.positions[0].last_trade_date == data.days[32]

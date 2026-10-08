@@ -110,6 +110,14 @@ staged 策略按指定证券的 research_close 判断缓慢下跌，按 close_ra
 窗口、阈值、投入上限及信号优先级见
 [staged 策略说明](../../src/xqatexp/strategy/strategies/staged_drawdown_v1/README.md)。
 
+staged_drawdown_v1 可选 ma_rebound 入场确认：从限定历史重算最近下跌机会，等待复权收盘
+高于含当日的均线且上涨。只控制空仓首次 BUY；不保存建议状态，清仓后丢弃早于最后确认
+成交日期的机会。未配置时沿用当天缓慢下跌入场。
+
+allow_add_after_sell 默认 false；开启时仍以最后确认买入价为下跌加仓锚点，卖出不归还累计
+投入额度。确认重新 BUY 沿用通用 state 重置减仓统计，但只在清仓后下一 BUY 重置周期投入。
+研究示例脚本调用既有离线 workflow 发布标准 Artifact，不在共享 Engine 中新增策略分支。
+
 ## 4. StrategyState
 
 StrategyPositionState 保存 quantity、remaining cost basis、last trade side/date/quantity/price、last buy price 和 cumulative buy notional。

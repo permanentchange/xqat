@@ -20,6 +20,10 @@ STAGED_DRAWDOWN_DEFAULTS: dict[str, object] = {
     "take_profit_mode": "repeat",
     "take_profit_levels": (Decimal("0.10"), Decimal("0.20"), Decimal("0.30")),
     "take_profit_sell_fractions": (Decimal("0.30"), Decimal("0.30"), Decimal("0.40")),
+    "entry_confirmation_mode": "none",
+    "entry_confirmation_ma_days": 5,
+    "entry_confirmation_window_days": 10,
+    "allow_add_after_sell": False,
 }
 
 
@@ -96,6 +100,18 @@ def normalize_staged_drawdown_parameters(
         raise ValueError("CONFIG_VALUE_INVALID: security_id must be 000000.SH/SZ")
     result["security_id"] = security_id
 
+    if not isinstance(result["allow_add_after_sell"], bool):
+        raise ValueError("CONFIG_VALUE_INVALID: allow_add_after_sell must be a boolean")
+
+    if result["entry_confirmation_mode"] not in ("none", "ma_rebound"):
+        raise ValueError("CONFIG_VALUE_INVALID: entry_confirmation_mode must be none or ma_rebound")
+    for field in ("entry_confirmation_ma_days", "entry_confirmation_window_days"):
+        result[field] = _integer(result[field], field)
+    if cast(int, result["entry_confirmation_ma_days"]) < 2:
+        raise ValueError("CONFIG_VALUE_INVALID: entry_confirmation_ma_days must be at least 2")
+    if cast(int, result["entry_confirmation_window_days"]) < 0:
+        raise ValueError("CONFIG_VALUE_INVALID: entry_confirmation_window_days must be nonnegative")
+
     result["lookback_trade_days"] = _integer(result["lookback_trade_days"], "lookback_trade_days")
     result["minimum_down_days"] = _integer(result["minimum_down_days"], "minimum_down_days")
     if cast(int, result["lookback_trade_days"]) < 2:
@@ -151,6 +167,20 @@ class StagedDrawdownParameters:
     take_profit_mode: str
     take_profit_levels: tuple[Decimal, ...]
     take_profit_sell_fractions: tuple[Decimal, ...]
+    entry_confirmation_mode: str
+    entry_confirmation_ma_days: int
+    entry_confirmation_window_days: int
+    allow_add_after_sell: bool
+
+    @property
+    def required_history_days(self) -> int:
+        if self.entry_confirmation_mode == "none":
+            return self.lookback_trade_days
+        return max(
+            self.lookback_trade_days + self.entry_confirmation_window_days,
+            self.entry_confirmation_ma_days,
+            2,
+        )
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, object]) -> StagedDrawdownParameters:
@@ -173,6 +203,10 @@ class StagedDrawdownParameters:
             take_profit_sell_fractions=cast(
                 tuple[Decimal, ...], normalized["take_profit_sell_fractions"]
             ),
+            entry_confirmation_mode=cast(str, normalized["entry_confirmation_mode"]),
+            entry_confirmation_ma_days=cast(int, normalized["entry_confirmation_ma_days"]),
+            entry_confirmation_window_days=cast(int, normalized["entry_confirmation_window_days"]),
+            allow_add_after_sell=cast(bool, normalized["allow_add_after_sell"]),
         )
 
     def as_mapping(self) -> dict[str, object]:
@@ -190,6 +224,10 @@ class StagedDrawdownParameters:
             "take_profit_mode": self.take_profit_mode,
             "take_profit_levels": self.take_profit_levels,
             "take_profit_sell_fractions": self.take_profit_sell_fractions,
+            "entry_confirmation_mode": self.entry_confirmation_mode,
+            "entry_confirmation_ma_days": self.entry_confirmation_ma_days,
+            "entry_confirmation_window_days": self.entry_confirmation_window_days,
+            "allow_add_after_sell": self.allow_add_after_sell,
         }
         if self.take_profit_mode == "tiered":
             del result["take_profit_threshold"]

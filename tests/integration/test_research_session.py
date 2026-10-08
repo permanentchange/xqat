@@ -208,3 +208,45 @@ def test_security_rules_are_declared_scoped_visible_and_checked_for_readiness(
         )
         assert snapshot.security_rules(("600000.SH",), ("sell_lot_size",)) == ()
         assert view.requirement_coverage(requirement, None) == 0
+
+
+def test_entry_confirmation_readiness_and_query_reject_not_yet_available_history(
+    tmp_path: Path,
+) -> None:
+    from decimal import Decimal
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from xqatexp.demo import create_offline_research
+    from xqatexp.research.readiness import ReadinessChecker
+    from xqatexp.strategy.state import StrategyStateReducer, StrategyStateView
+    from xqatexp.strategy.strategies.staged_drawdown_v1.strategy import StagedDrawdownStrategy
+
+    root = tmp_path / "research"
+    create_offline_research(root)
+    days = pq.read_table(root / "tables/trade_calendar.parquet")["calendar_date"].to_pylist()
+    strategy = StagedDrawdownStrategy(
+        {"security_id": "510300.SH", "entry_confirmation_mode": "ma_rebound"}
+    )
+    checker = ReadinessChecker()
+    with ResearchSession(root, strategy.declaration) as session:
+        short_report = checker.check(strategy.declaration, session.view(days[28]))
+        assert "STRATEGY_WARMUP_INSUFFICIENT" in short_report.issues
+        view = session.view(days[29])
+        assert checker.check(strategy.declaration, view).is_ready
+        table = pq.read_table(root / "tables/market_daily.parquet")
+        rows = table.to_pylist()
+        for row in rows:
+            if row["security_id"] == "510300.SH" and row["trade_date"] == days[0]:
+                row["available_from"] = days[30]
+        session._connection.register(
+            "unavailable_market", pa.Table.from_pylist(rows, schema=table.schema)
+        )
+        session._connection.execute(
+            "CREATE OR REPLACE VIEW market_daily AS SELECT * FROM unavailable_market"
+        )
+        assert checker.check(strategy.declaration, view).issues == ("DATA_COVERAGE_INSUFFICIENT",)
+        state = StrategyStateReducer("staged_drawdown_v1", "1.0.0").initial(Decimal("100000"))
+        with pytest.raises(ValueError, match="DATA_REQUIRED_MISSING"):
+            strategy.generate_stateful_decision(view, StrategyStateView(state), None, {})

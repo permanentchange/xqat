@@ -168,6 +168,9 @@ xqatexp result show --input .local/staged-etf-backtest --format markdown
 
 [Research 配置](../examples/config-research-etf.toml) 和 [回测配置](../examples/config-staged-etf.toml)
 分别定义数据日期与回测日期。示例行情覆盖 2020-01-01 至 2026-09-10，回测为 2025-01-01 至 2026-09-01。
+ETF 回测配置关闭入场确认并启用分级止盈，需要首个决策日及此前共 20 个交易日行情。
+可选 MA5 上涨确认默认需要 30 日历史；固定离线对照使用 `examples/analyze_staged_drawdown.py`，
+不会下载数据，研究输出必须使用独立新目录。
 使用单行 CLI，不依赖 Bash 循环或 heredoc；Linux 与 Windows PowerShell 使用同一套流程。
 这条路径不获取 ETF 分红，公司行为表可能为空；回测不会自动发现缺失事件，也不会模拟其现金或持仓变化。
 

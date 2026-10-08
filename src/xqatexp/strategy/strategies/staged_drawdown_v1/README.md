@@ -50,11 +50,30 @@ sizing = InitialCapitalFraction(buy_fraction)
 
 默认 gross 买入预算为初始资金的 10%，不是当前现金或净资产的 10%；成交费用另计。
 
+#### 可选入场确认
+
+`entry_confirmation_mode="none"` 为默认值，缓慢下跌信号当天即可产生首次 BUY。
+`entry_confirmation_mode="ma_rebound"` 时，空仓首次买入须同时满足：
+
+- 最近 `entry_confirmation_window_days` 个交易日内或当天产生过缓慢下跌信号；
+- 当天 `research_close` 严格高于最近 `entry_confirmation_ma_days` 日均值（包含当天）；
+- 当天 `research_close` 严格高于前一交易日 `research_close`。
+
+默认使用 MA5、最多等待 10 个交易日。最新信号当天为第 0 日，第 10 日仍有效，第 11 日过期；
+新的下跌信号刷新期限。确认日不必继续满足下跌条件，确认后仍在下一交易日 NEXT_OPEN 执行。
+价格等于均线或前收盘不确认。该条件只控制首次建仓，加仓和止盈沿用各自规则。
+
+机会由历史价格重算，不保存为策略状态；未成交时下一决策日重新检查，不根据建议推测持仓。
+清仓后排除早于最后确认成交日期的下跌信号，清仓当天的新信号仍可使用。
+diagnostics 包含 entry_setup_date、entry_setup_age_trade_days、entry_confirmation_ma、
+entry_confirmation_above_ma、entry_confirmation_price_up、entry_confirmation_passed 和 entry_waiting。
+有持仓时不选择入场机会。确认条件是研究假设，不保证提高夏普率。
+
 ### 2.2 连续买入
 
 已有持仓且未触发止盈时，只有同时满足：
 
-- 上一次 confirmed trade 是 BUY；
+- 上一次 confirmed trade 是 BUY，或 `allow_add_after_sell=true` 时为 SELL；
 - 有 `last_buy_price`；
 - 当前 `close_raw` 相比上一次实际买入成交价下跌达到阈值；
 - 当前持仓周期仍有累计买入额度；
@@ -78,10 +97,17 @@ side   = BUY
 
 标准档位仍是初始资金的 10%。
 
-加仓不要求重新满足首次买入的缓慢下跌条件。部分卖出后，`last_trade_side` 为 SELL，
+加仓不要求重新满足首次买入的缓慢下跌条件。默认部分卖出后，`last_trade_side` 为 SELL，
 会阻止加仓，直到新的 confirmed BUY 将其改回 BUY。按本策略自身信号，剩余持仓不会因为价格下跌
 而重新买入；清仓后再次满足首次买入条件才开始新周期。
 公司行为调整后的 `last_buy_price` 作为后续比较锚点。
+
+可选 `allow_add_after_sell=true` 仅解除卖出后的禁令，不使用卖出价作为新锚点。
+最后实际买入价再跌10%且有累计额度时，可追加；卖出不归还额度，现金和成交限制仍适用。
+确认 BUY 后，通用 reducer 重置 exit_base_quantity / exit_sold_quantity，剩余持仓重启分级止盈；
+发出建议或未成交不会重置。持仓周期累计投入仍保留，直到清仓后下一次 BUY 才重新累计。
+diagnostics 的 add_decline_reached、add_blocked_after_sell、add_budget_remaining 和
+add_budget_exhausted 解释价格、卖后禁令和预算约束；signal 表示最终优先级选择。
 
 ### 2.3 最大投入
 
@@ -157,7 +183,7 @@ sizing = CurrentPositionFraction(0.20)
 首次目标不足一手时直接清仓；已完成的、向下取整后的档位不会因此追加清仓。
 非清仓建议使用 `FixedQuantity`，实际成交仍受共享执行层约束。
 
-首笔实际 SELL 后继续禁止加仓。清仓后，下一决策日重新满足首次买入条件即可开始新周期，
+默认首笔实际 SELL 后继续禁止加仓；可选开关按第 2.2 节重新买入。清仓后，下一决策日重新满足首次买入条件即可开始新周期，
 不增加冷却期。分级档位是研究参数，不保证提高夏普率。
 
 ### 2.6 价格口径
@@ -208,7 +234,7 @@ Snapshot 还保存 `initial_capital`、`as_of` 和策略身份。Backtest 从 ex
 | 参数 | 默认值 | 作用 |
 | --- | ---: | --- |
 | `security_id` | 无，必填 | 单一目标证券，格式必须为 `000000.SH` 或 `000000.SZ` |
-| `lookback_trade_days` | 20 | 每次决策要求的价格窗口，用于首次买入信号；整数且至少为 2 |
+| `lookback_trade_days` | 20 | 每个缓慢下跌信号的价格窗口；整数且至少为 2 |
 | `cumulative_decline_threshold` | 0.10 | 首次买入要求的累计跌幅 |
 | `single_day_crash_threshold` | 0.05 | “无单日暴跌”的最大允许单日跌幅 |
 | `minimum_down_days` | 12 | 下跌日数阈值；整数且 `1 <= minimum_down_days < lookback_trade_days` |
@@ -220,6 +246,10 @@ Snapshot 还保存 `initial_capital`、`as_of` 和策略身份。Backtest 从 ex
 | `take_profit_mode` | repeat | repeat 或 tiered |
 | `take_profit_levels` | [0.10, 0.20, 0.30] | tiered 模式盈利阈值 |
 | `take_profit_sell_fractions` | [0.30, 0.30, 0.40] | tiered 模式各档卖出比例，末档清仓 |
+| `entry_confirmation_mode` | none | none 或 ma_rebound，仅控制首次建仓 |
+| `entry_confirmation_ma_days` | 5 | 复权收盘均线周期，整数且至少为 2 |
+| `entry_confirmation_window_days` | 10 | 距最新下跌信号的最大交易日数，非负整数，0 表示必须当天确认 |
+| `allow_add_after_sell` | false | 是否允许止盈后继续按最后买入价加仓，仅接受布尔值 |
 
 七个比例参数必须在 `(0, 1]`，且 `buy_fraction <= max_capital_fraction`。
 分级数组须非空、等长；阈值须有限、为正且严格递增；各档比例须为正且合计为 1。
@@ -230,7 +260,7 @@ tiered 模式禁止显式配置 `take_profit_threshold` 或 `sell_fraction`；�
 
 StrategyDeclaration 的共同要求：
 
-- 最近 `lookback_trade_days` 个交易日；
+- 完整声明价格窗口（未启用入场确认为 `lookback_trade_days`）；
 - 指定 `security_id` 的 `research_close`；
 - 指定 `security_id` 的 `close_raw`；
 - 覆盖率 100%；
@@ -244,8 +274,11 @@ tiered 模式额外声明 `SECURITY_RULES` 要求，通过受限 `security_rules
 
 虽然策略信号只依赖上述价格字段，Backtest 共享执行层还会使用 Research Artifact 中的 open/high/low、成交量、证券交易单位和可用状态事实来模拟实际成交。
 
-每次决策都会检查完整窗口，两种收盘价均须非缺失且为正数；已有持仓或无信号时也不例外。
-首个决策日及此前共需至少 `lookback_trade_days` 个交易日数据。
+入场确认模式声明 `max(lookback_trade_days + entry_confirmation_window_days,
+entry_confirmation_ma_days, 2)` 个交易日，同时用于日历、行情 readiness 和历史查询。
+默认确认配置需要 30 日历史；每个下跌信号仍只使用自身的 20 日窗口。
+每次决策都会检查完整窗口，两种收盘价均须非缺失、有限且为正数；已有持仓或无信号时也不例外。
+首个决策日及此前共需至少声明窗口长度的交易日数据；缺失时不缩短窗口或填补价格。
 Research 日历还必须包含最后决策日之后的下一交易日；Daily 和回测最后一天的决策都需要它。
 最后一天的信号会保存到 diagnostics，但对应下一交易日若在回测区间之外，不再模拟成交。
 
@@ -281,17 +314,43 @@ dividend_tax_model = "PROVIDER_AFTER_TAX"
 
 `security_id` 也可以是项目 Research Artifact 中存在的 ETF，例如 `510300.SH`。
 真实 ETF 回测配置见 [config-staged-etf.toml](../../../../../examples/config-staged-etf.toml)。
-该 ETF 示例显式启用分级止盈；其他未指定模式的配置保持 repeat。
-分级模式的 `[strategy]` 片段如下，勿同时复制旧模式的两个止盈参数：
+该 ETF 示例关闭入场确认并启用分级止盈；其他未指定模式的配置不启用入场确认并保持 repeat。
+ETF 示例的 `[strategy]` 片段如下，勿同时复制旧模式的两个止盈参数：
 
 ```toml
 [strategy]
 security_id = "510300.SH"
+entry_confirmation_mode = "none"
+entry_confirmation_ma_days = 5
+entry_confirmation_window_days = 10
 take_profit_mode = "tiered"
 take_profit_levels = [0.10, 0.20, 0.30]
 take_profit_sell_fractions = [0.30, 0.30, 0.40]
 ```
 相对路径按运行时工作目录解析，因此示例命令应在仓库根目录执行。
+
+### 6.1 固定离线研究协议
+
+```bash
+python examples/analyze_staged_drawdown.py --config examples/config-staged-etf.toml --start-date 2020-03-02 --end-date 2026-09-01 --output .local/staged-etf-mechanism-study
+```
+
+四组主实验固定累计上限30%、单次买入10%、止盈10%/20%/30%，只切换入场确认和卖后加仓。
+入场确认固定 MA5、等待10日；加仓锚点为最后实际买入价。四组各用10/20/30 bps滑点，
+另以100%上限复现原基线，共13次回测。其他下跌信号参数和执行约束继承输入配置。
+默认开关仍为 false，脚本不会按实验成绩修改示例配置。
+
+输出包括13个标准结果 Artifact、comparison.csv/json、annual_comparison.csv、cycles.csv、
+decision_trace.csv、signals.csv、event_groups.csv、event_outcomes.csv 和 report.md。
+study_manifest.json 保存输入配置/Research 哈希、试验参数、完成列表与输出哈希。
+输出目录已存在时拒绝运行；失败保留状态和完成结果，不宣称完成。
+
+相邻下跌信号间隔不超过10个交易日归为同组，各组只对比首次信号和首次有效确认。
+事件收益从下一交易日复权开盘起算，到第20/60/120个持有日复权收盘，最大不利波动使用
+期间收盘相对开盘的最低收益（不大于0）。事件不加仓、不止盈、不含费用，不替代完整回测。
+未来窗口不足或行情不可用时标记 incomplete，不缩短窗口或填补价格。
+逐周期净值损益包含费用与未平仓估值；卖后等待长度以连续有仓位且上次成交为 SELL 的决策日计。
+事件组很少、可能重叠，ETF分红完整性未经验证；当前历史已反复查看，不作为样本外证据。
 
 ## 7. 从下载数据到回测和 Daily
 

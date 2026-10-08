@@ -45,9 +45,9 @@ class StagedDrawdownStrategy:
         del custom, parameters
         values = self.parameters
         days = tuple(research.trading_days(research.earliest_date, research.decision_date))
-        if len(days) < values.lookback_trade_days:
+        if len(days) < values.required_history_days:
             raise ValueError("STRATEGY_WARMUP_INSUFFICIENT: staged drawdown lookback is incomplete")
-        recent = days[-values.lookback_trade_days :]
+        recent = days[-values.required_history_days :]
         view = research.slice(research.decision_date)
         rows = cast(
             Sequence[Mapping[str, Any]],
@@ -58,28 +58,51 @@ class StagedDrawdownStrategy:
                 recent[-1],
             ),
         )
-        if len(rows) != values.lookback_trade_days or any(
+        if tuple(row.get("trade_date") for row in rows) != recent or any(
             row.get("research_close") is None or row.get("close_raw") is None for row in rows
         ):
             raise ValueError("DATA_REQUIRED_MISSING: staged drawdown price history")
         closes = tuple(Decimal(str(row["research_close"])) for row in rows)
         raw_closes = tuple(Decimal(str(row["close_raw"])) for row in rows)
-        if any(value <= 0 for value in (*closes, *raw_closes)):
+        if any(not value.is_finite() or value <= 0 for value in (*closes, *raw_closes)):
             raise ValueError("DATA_REQUIRED_MISSING: nonpositive staged drawdown price")
 
-        returns = tuple(closes[index] / closes[index - 1] - 1 for index in range(1, len(closes)))
-        cumulative_return = closes[-1] / closes[0] - 1
-        worst_daily_return = min(returns)
-        down_days = sum(value < 0 for value in returns)
-        slow_decline = (
-            cumulative_return <= -values.cumulative_decline_threshold
-            and worst_daily_return >= -values.single_day_crash_threshold
-            and down_days >= values.minimum_down_days
+        cumulative_return, worst_daily_return, down_days, slow_decline = self._decline_metrics(
+            closes[-values.lookback_trade_days :]
         )
 
         current_close = raw_closes[-1]
         position = state.position(values.security_id)
         quantity = 0 if position is None else position.quantity
+        entry_allowed = slow_decline
+        entry_diagnostics: dict[str, object] = {
+            "entry_confirmation_mode": values.entry_confirmation_mode
+        }
+        if values.entry_confirmation_mode == "ma_rebound":
+            entry_allowed, entry_diagnostics = self._entry_confirmation(recent, closes, position)
+        remaining = max(
+            Decimal("0"),
+            state.initial_capital * values.max_capital_fraction
+            - (
+                Decimal("0")
+                if position is None or quantity == 0
+                else position.cumulative_buy_notional
+            ),
+        )
+        add_decline_reached = (
+            quantity > 0
+            and position is not None
+            and position.last_buy_price is not None
+            and current_close <= position.last_buy_price * (1 - values.add_buy_decline_threshold)
+        )
+        after_sell = position is not None and position.last_trade_side is OrderSide.SELL
+        add_allowed = add_decline_reached and (
+            position is not None
+            and (
+                position.last_trade_side is OrderSide.BUY
+                or (after_sell and values.allow_add_after_sell)
+            )
+        )
         profit_rate: Decimal | None = None
         if quantity > 0:
             if position is None or position.remaining_cost_basis <= 0:
@@ -107,20 +130,11 @@ class StagedDrawdownStrategy:
             )
             side = OrderSide.SELL
             sizing = sell_sizing
-        elif quantity == 0 and slow_decline:
+        elif quantity == 0 and entry_allowed:
             signal = "INITIAL_ENTRY"
             side = OrderSide.BUY
             sizing = InitialCapitalFraction(values.buy_fraction)
-        elif (
-            quantity > 0
-            and position is not None
-            and position.last_trade_side is OrderSide.BUY
-            and position.last_buy_price is not None
-            and current_close
-            <= position.last_buy_price * (Decimal("1") - values.add_buy_decline_threshold)
-        ):
-            maximum = state.initial_capital * values.max_capital_fraction
-            remaining = maximum - position.cumulative_buy_notional
+        elif add_allowed:
             standard = state.initial_capital * values.buy_fraction
             if remaining > 0:
                 signal = "ADD_ON_DECLINE"
@@ -159,6 +173,18 @@ class StagedDrawdownStrategy:
                 "signal": signal,
                 "take_profit_mode": values.take_profit_mode,
                 **tier_diagnostics,
+                **entry_diagnostics,
+                "allow_add_after_sell": values.allow_add_after_sell,
+                "last_trade_side": None
+                if position is None or position.last_trade_side is None
+                else position.last_trade_side.value,
+                "add_decline_reached": add_decline_reached,
+                "add_blocked_after_sell": add_decline_reached
+                and after_sell
+                and not values.allow_add_after_sell
+                and remaining > 0,
+                "add_budget_remaining": remaining,
+                "add_budget_exhausted": add_decline_reached and remaining == 0,
                 "current_raw_close": current_close,
                 "current_research_close": closes[-1],
                 "lookback_cumulative_return": cumulative_return,
@@ -182,6 +208,58 @@ class StagedDrawdownStrategy:
             intents,
             diagnostics,
         )
+
+    def _decline_metrics(self, closes: Sequence[Decimal]) -> tuple[Decimal, Decimal, int, bool]:
+        returns = tuple(closes[index] / closes[index - 1] - 1 for index in range(1, len(closes)))
+        cumulative_return = closes[-1] / closes[0] - 1
+        worst_daily_return = min(returns)
+        down_days = sum(value < 0 for value in returns)
+        values = self.parameters
+        slow_decline = (
+            cumulative_return <= -values.cumulative_decline_threshold
+            and worst_daily_return >= -values.single_day_crash_threshold
+            and down_days >= values.minimum_down_days
+        )
+        return cumulative_return, worst_daily_return, down_days, slow_decline
+
+    def _entry_confirmation(
+        self,
+        days: Sequence[date],
+        closes: Sequence[Decimal],
+        position: StrategyPositionState | None,
+    ) -> tuple[bool, dict[str, object]]:
+        values = self.parameters
+        ma = sum(closes[-values.entry_confirmation_ma_days :]) / values.entry_confirmation_ma_days
+        above_ma = closes[-1] > ma
+        price_up = closes[-1] > closes[-2]
+        passed = above_ma and price_up
+        setup_date: date | None = None
+        setup_age: int | None = None
+        flat = position is None or position.quantity == 0
+        if flat:
+            for age in range(values.entry_confirmation_window_days + 1):
+                index = len(closes) - 1 - age
+                if (
+                    position is not None
+                    and position.last_trade_date is not None
+                    and days[index] < position.last_trade_date
+                ):
+                    break
+                if self._decline_metrics(
+                    closes[index - values.lookback_trade_days + 1 : index + 1]
+                )[-1]:
+                    setup_date, setup_age = days[index], age
+                    break
+        return flat and setup_date is not None and passed, {
+            "entry_confirmation_mode": values.entry_confirmation_mode,
+            "entry_setup_date": setup_date,
+            "entry_setup_age_trade_days": setup_age,
+            "entry_confirmation_ma": ma,
+            "entry_confirmation_above_ma": above_ma,
+            "entry_confirmation_price_up": price_up,
+            "entry_confirmation_passed": passed,
+            "entry_waiting": flat and setup_date is not None and not passed,
+        }
 
     def _tiered_exit(
         self,
